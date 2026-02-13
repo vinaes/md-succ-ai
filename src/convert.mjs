@@ -104,7 +104,9 @@ async function fetchWithBrowser(browserPool, url) {
     await page.waitForTimeout(2000);
     return await page.content();
   } finally {
+    const ctx = page.context();
     await page.close();
+    await ctx.close();
   }
 }
 

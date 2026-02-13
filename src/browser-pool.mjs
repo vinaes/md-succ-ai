@@ -25,17 +25,20 @@ export class BrowserPool {
         '--disable-gpu',
         '--no-first-run',
         '--no-zygote',
-        '--single-process',
         '--disable-extensions',
       ],
     });
-    this.browser = await this.launching;
-    this.launching = null;
+    try {
+      this.browser = await this.launching;
+    } finally {
+      this.launching = null;
+    }
     console.log('[browser-pool] Chromium launched');
   }
 
   async newPage() {
     if (!this.browser?.isConnected()) {
+      this.browser = null;
       await this.init();
     }
     const context = await this.browser.newContext({

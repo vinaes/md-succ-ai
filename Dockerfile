@@ -44,6 +44,7 @@ COPY --chown=mduser:mduser src/ ./src/
 ENV PORT=3000
 ENV ENABLE_BROWSER=true
 ENV NODE_ENV=production
+ENV NODE_OPTIONS=--use-openssl-ca
 
 EXPOSE 3000
 
