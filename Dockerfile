@@ -1,7 +1,8 @@
 FROM node:22-slim
 
-# Install Playwright system dependencies for Chromium
+# Install CA certs + Playwright system dependencies for Chromium
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
     libnss3 \
     libnspr4 \
     libdbus-1-3 \
@@ -25,20 +26,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy package files and install deps
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+# Non-root user for security (create early so Playwright installs to correct home)
+RUN groupadd -r mduser && useradd -r -g mduser -G audio,video mduser \
+    && mkdir -p /home/mduser && chown -R mduser:mduser /home/mduser /app
 
-# Install only Chromium browser (not Firefox/WebKit)
+# Copy package files and install deps (as root for node_modules permissions)
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && chown -R mduser:mduser /app
+
+# Install Chromium as mduser so browser lands in /home/mduser/.cache/
+USER mduser
 RUN npx playwright install chromium
 
 # Copy source code
-COPY src/ ./src/
-
-# Non-root user for security
-RUN groupadd -r mduser && useradd -r -g mduser -G audio,video mduser \
-    && mkdir -p /home/mduser && chown -R mduser:mduser /home/mduser /app
-USER mduser
+COPY --chown=mduser:mduser src/ ./src/
 
 ENV PORT=3000
 ENV ENABLE_BROWSER=true
