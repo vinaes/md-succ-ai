@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgbm1 \
     libpango-1.0-0 \
     libcairo2 \
-    libasound2t64 \
+    libasound2 \
     fonts-noto-color-emoji \
     fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
@@ -26,8 +26,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy package files and install deps
-COPY package.json ./
-RUN npm install --omit=dev
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
 
 # Install only Chromium browser (not Firefox/WebKit)
 RUN npx playwright install chromium
