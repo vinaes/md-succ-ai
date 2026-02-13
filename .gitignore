@@ -1,2 +1,35 @@
 node_modules/
 .env
+.env.local
+
+# succ generated files (local to each machine)
+.claude/
+.succ/
+
+# MCP config (local)
+.mcp.json
+
+# Build/tool caches
+.cache/
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Temp files
+tmp/
+temp/
+
+# Windows
+nul
