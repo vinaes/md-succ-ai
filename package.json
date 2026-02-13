@@ -3,6 +3,16 @@
   "version": "1.0.0",
   "description": "HTML to clean Markdown API — md.succ.ai",
   "type": "module",
+  "license": "FSL-1.1-Apache-2.0",
+  "author": "Vinaes Code LLC",
+  "homepage": "https://md.succ.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vinaes/md-succ-ai.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vinaes/md-succ-ai/issues"
+  },
   "scripts": {
     "start": "node src/server.mjs",
     "dev": "node --watch src/server.mjs"

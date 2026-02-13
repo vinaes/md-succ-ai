@@ -1,6 +1,16 @@
 node_modules
 .git
 .gitignore
+.succ
+.claude
+.mcp.json
 nginx
+scripts
 README.md
+CLAUDE.md
+LICENSE
 docker-compose.yml
+*.log
+*.md
+!package.json
+!package-lock.json
