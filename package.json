@@ -1,0 +1,22 @@
+{
+  "name": "md-succ-ai",
+  "version": "1.0.0",
+  "description": "HTML to clean Markdown API — md.succ.ai",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.mjs",
+    "dev": "node --watch src/server.mjs"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.0",
+    "@mozilla/readability": "^0.5.0",
+    "gpt-tokenizer": "^2.8.1",
+    "hono": "^4.7.0",
+    "linkedom": "^0.18.0",
+    "playwright": "^1.50.0",
+    "turndown": "^7.2.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

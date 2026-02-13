@@ -1,0 +1,20 @@
+services:
+  md-api:
+    build: .
+    container_name: md-succ-ai
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3100:3000"
+    environment:
+      - PORT=3000
+      - ENABLE_BROWSER=true
+      - NODE_ENV=production
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: "4"
+    # Shared memory for Chromium
+    shm_size: "512mb"
+    security_opt:
+      - no-new-privileges:true
