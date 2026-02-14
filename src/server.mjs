@@ -96,6 +96,17 @@ app.use('*', async (c, next) => {
 // Health check (minimal — no config/uptime leaks)
 app.get('/health', (c) => c.json({ status: 'ok' }));
 
+// Check if LLM extract returned mostly empty data (arrays empty, values null)
+function isExtractEmpty(result) {
+  if (!result?.valid || !result?.data) return true;
+  const data = result.data;
+  for (const val of Object.values(data)) {
+    if (Array.isArray(val) && val.length > 0) return false;
+    if (val !== null && val !== undefined && val !== '' && !Array.isArray(val)) return false;
+  }
+  return true;
+}
+
 // LLM schema extraction: POST /extract
 // Rate-limited: max 10 requests per minute per IP (LLM calls are expensive)
 const extractLimiter = new Map(); // ip → {count, resetAt}
@@ -159,12 +170,19 @@ app.post('/extract', async (c) => {
 
   try {
     console.log(`[extract] ${safeLog(targetUrl)}`);
-    // Use full conversion pipeline (fetch → 9-pass → Playwright fallback → LLM)
-    // to get clean Markdown, then extract structured data from it
-    // forceBrowser: always try Playwright for /extract — SSR often misses dynamic content
     const pool = ENABLE_BROWSER ? browserPool : null;
-    const converted = await convert(targetUrl, pool, { forceBrowser: true });
-    const result = await extractSchema(converted.markdown, targetUrl, schema);
+    const converted = await convert(targetUrl, pool);
+    let result = await extractSchema(converted.markdown, targetUrl, schema);
+
+    // Retry with Playwright if LLM returned mostly empty data (SPA likely)
+    if (pool && !converted.tier?.includes('browser') && isExtractEmpty(result)) {
+      console.log(`[extract] empty result from ${converted.tier}, retrying with browser`);
+      const browserConverted = await convert(targetUrl, pool, { forceBrowser: true });
+      if (browserConverted.markdown.length > converted.markdown.length) {
+        result = await extractSchema(browserConverted.markdown, targetUrl, schema);
+      }
+    }
+
     return c.json(result);
   } catch (err) {
     console.error(`[extract] ${safeLog(targetUrl)} — ${err.message}`);

@@ -1929,10 +1929,13 @@ export async function convert(url, browserPool = null, options = {}) {
       if (!result || browserResult.quality.score > result.quality.score) {
         result = browserResult;
       } else if (options.forceBrowser) {
-        // forceBrowser: smart extraction may miss dynamic content (e.g. GitHub trending).
-        // Fall back to raw Turndown on <main>/<body> which preserves all visible text.
+        // forceBrowser retry: smart extraction missed dynamic content.
+        // Raw Turndown on <main>/<body> preserves all visible text for LLM.
+        // Light cleanup only (no modal/popup removal — SPA content lives there)
         const { document: bDoc } = parseHTML(html);
-        cleanHTML(bDoc);
+        for (const tag of ['script', 'style', 'noscript', 'svg', 'link[rel="stylesheet"]']) {
+          try { for (const el of bDoc.querySelectorAll(tag)) el.remove(); } catch {}
+        }
         const main = bDoc.querySelector('main, [role="main"], .application-main') || bDoc.body;
         if (main) {
           const rawMd = cleanMarkdown(turndown.turndown(main.innerHTML));
