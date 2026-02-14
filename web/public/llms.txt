@@ -1,10 +1,10 @@
 # md.succ.ai
 
-> HTML to clean Markdown API. Convert any webpage to readable Markdown optimized for AI consumption.
+> HTML to clean Markdown API. Convert any webpage, document, or YouTube video to readable Markdown optimized for AI consumption.
 
 ## What it does
 
-md.succ.ai converts any URL to clean Markdown using Mozilla Readability for content extraction. It strips navigation, sidebars, footers, and ads — returning only the article content.
+md.succ.ai converts any URL to clean Markdown using a 9-pass extraction pipeline (Readability, Defuddle, article-extractor, CSS selectors, Schema.org, Open Graph, text density, and more). It strips navigation, sidebars, footers, and ads — returning only the article content. YouTube URLs return transcripts with timestamps.
 
 ## API Usage
 
@@ -14,12 +14,34 @@ No API key required. No authentication. No rate limits for reasonable use.
 
 - GET https://md.succ.ai/{url} — convert URL to Markdown
 - GET https://md.succ.ai/?url={url} — query param format
+- POST https://md.succ.ai/extract — structured data extraction (JSON schema)
 - GET https://md.succ.ai/health — health check
 
-### Example
+### Query Parameters
+
+- ?links=citations — convert inline links to numbered references with footer
+- ?mode=fit — prune boilerplate for LLM-optimized output
+- ?max_tokens=N — truncate output to N tokens
+
+### Examples
 
 ```
+# Basic conversion
 curl https://md.succ.ai/https://example.com
+
+# YouTube transcript
+curl https://md.succ.ai/https://youtube.com/watch?v=dQw4w9WgXcQ
+
+# Citation-style links
+curl "https://md.succ.ai/?url=https://en.wikipedia.org/wiki/Markdown&links=citations"
+
+# LLM-optimized
+curl "https://md.succ.ai/?url=https://htmx.org/docs/&mode=fit"
+
+# Structured extraction
+curl -X POST https://md.succ.ai/extract \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com", "schema": {"type": "object", "properties": {"title": {"type": "string"}}}}'
 ```
 
 ### JSON Response (Accept: application/json)
@@ -31,7 +53,8 @@ curl https://md.succ.ai/https://example.com
   "content": "# Example Domain\n\nThis domain is for use in documentation...",
   "tokens": 33,
   "tier": "fetch",
-  "readability": true,
+  "method": "readability",
+  "quality": { "score": 0.85, "grade": "A" },
   "time_ms": 245,
   "excerpt": "This domain is for use in...",
   "byline": "",
@@ -42,16 +65,31 @@ curl https://md.succ.ai/https://example.com
 ### Response Headers
 
 - x-markdown-tokens: cl100k_base token count
-- x-conversion-tier: "fetch" or "browser"
+- x-conversion-tier: fetch | browser | llm | youtube | document:pdf
 - x-conversion-time: conversion time in milliseconds
-- x-readability: whether Readability extraction succeeded
+- x-extraction-method: readability | defuddle | article-extractor | pdf | ...
+- x-quality-score: quality score 0-1
+- x-quality-grade: quality grade A-F
+- x-cache: hit | miss
 
-## Two-Tier Pipeline
+## Pipeline
 
-1. **Tier 1 (fast)**: Plain HTTP fetch + Readability + Turndown (200-500ms for static pages)
-2. **Tier 2 (fallback)**: Playwright headless Chromium for SPAs and JS-heavy sites (3-15s)
+1. **YouTube detection**: YouTube URLs bypass HTML pipeline — transcript extracted via innertube API
+2. **Document detection**: PDF, DOCX, XLSX, CSV detected by Content-Type or extension
+3. **Tier 1 (fast)**: 9-pass extraction pipeline (200-500ms) with quality ratio checks
+4. **Tier 2 (browser)**: Playwright headless Chromium for SPAs and JS-heavy sites (3-15s)
+5. **Tier 2.5 (LLM)**: nano-gpt structured extraction when quality < B
 
-Automatic detection — no configuration needed.
+Automatic tier escalation — no configuration needed.
+
+## Supported Formats
+
+- HTML — 9-pass extraction + Turndown
+- PDF — text extraction via unpdf
+- DOCX — mammoth → HTML → Turndown
+- XLSX/XLS — SheetJS → Markdown tables
+- CSV — SheetJS → Markdown table
+- YouTube — transcript with timestamps
 
 ## Self-Hosting
 
@@ -68,15 +106,18 @@ Available at localhost:3100. Docker image includes Chromium.
 - AI agent web browsing (MCP tools, function calling)
 - RAG pipeline document ingestion
 - Content extraction for LLM context windows
+- YouTube transcript extraction for video summarization
+- Structured data extraction from any webpage
 - Web research automation
 - Documentation scraping
 
 ## Technology
 
 - Node.js 22, Hono framework
-- Mozilla Readability (content extraction)
+- Mozilla Readability + Defuddle (content extraction)
 - Turndown (HTML to Markdown)
 - Playwright (headless Chromium for SPAs)
+- Ajv (JSON Schema validation)
 - gpt-tokenizer (cl100k_base token counting)
 
 ## Links

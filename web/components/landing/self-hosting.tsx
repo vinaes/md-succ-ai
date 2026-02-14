@@ -114,11 +114,6 @@ npm start`}
               <span className="text-foreground">NANOGPT_MODEL</span>
               <span className="text-muted-foreground">LLM model (default: llama-3.1-8b)</span>
             </div>
-            <div className="h-px bg-border" />
-            <div className="flex flex-col sm:flex-row sm:justify-between gap-1">
-              <span className="text-foreground">EXTERNAL_API_LIMIT</span>
-              <span className="text-muted-foreground">Monthly API cap (default: 200)</span>
-            </div>
           </div>
         </div>
       </div>

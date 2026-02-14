@@ -1,41 +1,41 @@
-import { Scissors, Timer, Globe, Gauge, Shield, FileText } from "lucide-react"
+import { Scissors, Youtube, LinkIcon, Minimize2, Database, Shield } from "lucide-react"
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 
 const features = [
   {
     icon: Scissors,
-    title: "8-Pass Extraction",
-    description: "Readability, article-extractor, CSS selectors, Schema.org, Open Graph, text density — 8 extraction passes to find content other tools miss.",
+    title: "9-Pass Extraction",
+    description: "Readability, Defuddle, article-extractor, CSS selectors, Schema.org, Open Graph, text density — 9 extraction passes with quality ratio checks.",
     color: "text-green",
   },
   {
-    icon: Timer,
-    title: "200-500ms Static Pages",
-    description: "Plain fetch + DOM parse + multi-pass extraction + Turndown. No browser overhead for well-structured HTML pages.",
+    icon: Youtube,
+    title: "YouTube Transcripts",
+    description: "YouTube URLs are automatically detected and transcripts extracted with timestamps. No browser needed — direct innertube API.",
     color: "text-blue",
   },
   {
-    icon: Globe,
-    title: "SPA + Browser Fallback",
-    description: "Playwright headless Chromium as automatic Tier 2. LLM-based extraction as Tier 2.5. External API fallbacks as Tier 3. Automatic quality-based escalation.",
+    icon: LinkIcon,
+    title: "Citation Links",
+    description: "?links=citations converts inline links to numbered references with a footer. Saves tokens on repeated URLs. Academic-style output for LLMs.",
     color: "text-green",
   },
   {
-    icon: FileText,
-    title: "PDF, DOCX, XLSX, CSV",
-    description: "Not just HTML — extract text from PDFs, convert Word documents, parse spreadsheets to markdown tables. Auto-detected by Content-Type.",
+    icon: Minimize2,
+    title: "fit_markdown Mode",
+    description: "?mode=fit prunes boilerplate sections — navigation, footers, low-value content. Smaller context for LLMs without losing signal.",
     color: "text-blue",
   },
   {
-    icon: Gauge,
-    title: "Quality Scoring",
-    description: "Every response includes quality score (0-1) and grade (A-F). Token count, extraction method, conversion tier — full observability.",
+    icon: Database,
+    title: "Schema Extraction",
+    description: "POST /extract with a JSON schema. Returns structured data extracted by LLM. Any page, any schema — validated with Ajv.",
     color: "text-green",
   },
   {
     icon: Shield,
     title: "Security Hardened",
-    description: "SSRF protection with DNS validation, private IP blocking, redirect validation. Prompt injection hardening. 0 CVE dependencies.",
+    description: "SSRF protection with DNS validation, private IP blocking, redirect validation. Prompt injection hardening. Schema field whitelist. 0 CVE.",
     color: "text-blue",
   },
 ]
@@ -50,8 +50,8 @@ export function Features() {
             Clean content, not page cruft
           </h2>
           <p className="text-sm sm:text-base text-muted-foreground max-w-2xl mx-auto leading-relaxed px-2">
-            8 extraction passes to find content. 4 conversion tiers for reliability.
-            Quality scoring to verify results. Document format support beyond HTML.
+            9 extraction passes to find content. 3 conversion tiers for reliability.
+            YouTube transcripts, citation links, LLM-optimized output, and structured extraction.
           </p>
         </div>
 

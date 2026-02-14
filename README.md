@@ -23,7 +23,7 @@
 
 ---
 
-> Convert any webpage or document to clean, readable Markdown. Supports HTML, PDF, DOCX, XLSX, and CSV. Built for AI agents, MCP tools, and RAG pipelines. Powered by [succ](https://succ.ai).
+> Convert any webpage or document to clean, readable Markdown. Supports HTML, PDF, DOCX, XLSX, CSV, and YouTube transcripts. Citation-style links, LLM-optimized output, and structured data extraction. Built for AI agents, MCP tools, and RAG pipelines. Powered by [succ](https://succ.ai).
 
 ## API
 
@@ -41,19 +41,59 @@ curl -H "Accept: application/json" https://md.succ.ai/https://example.com
 # Query param format
 curl https://md.succ.ai/?url=https://example.com
 
-# Documents work too
+# Documents
 curl https://md.succ.ai/https://example.com/report.pdf
 curl https://md.succ.ai/https://example.com/data.xlsx
+
+# YouTube transcript
+curl https://md.succ.ai/https://youtube.com/watch?v=dQw4w9WgXcQ
+
+# Citation-style links (numbered references)
+curl "https://md.succ.ai/?url=https://en.wikipedia.org/wiki/Markdown&links=citations"
+
+# LLM-optimized output (pruned boilerplate)
+curl "https://md.succ.ai/?url=https://htmx.org/docs/&mode=fit"
+
+# Token limit
+curl "https://md.succ.ai/?url=https://example.com&mode=fit&max_tokens=4000"
 ```
+
+### Query Parameters
+
+| Parameter | Values | Description |
+|-----------|--------|-------------|
+| `url` | URL | Target URL (alternative to path format) |
+| `links` | `citations` | Convert inline links to numbered references with footer |
+| `mode` | `fit` | Prune boilerplate sections for smaller LLM context |
+| `max_tokens` | number | Truncate output to N tokens (use with `mode=fit`) |
+
+### Structured Data Extraction
+
+```bash
+curl -X POST https://md.succ.ai/extract \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://example.com",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "heading": { "type": "string" }
+      }
+    }
+  }'
+```
+
+Returns structured JSON matching the provided schema, extracted by LLM.
 
 ### Response Headers
 
 | Header | Description |
 |--------|-------------|
 | `x-markdown-tokens` | Token count (cl100k_base) |
-| `x-conversion-tier` | `fetch`, `browser`, `llm`, `document:pdf`, `external`, etc. |
+| `x-conversion-tier` | `fetch`, `browser`, `llm`, `youtube`, `document:pdf`, etc. |
 | `x-conversion-time` | Total conversion time in ms |
-| `x-extraction-method` | Extraction pass used (`readability`, `article-extractor`, `css-selector`, `pdf`, etc.) |
+| `x-extraction-method` | Extraction pass used (`readability`, `defuddle`, `article-extractor`, etc.) |
 | `x-quality-score` | Quality score 0-1 |
 | `x-quality-grade` | Quality grade A-F |
 | `x-readability` | `true` if Readability extracted clean content |
@@ -84,49 +124,51 @@ curl https://md.succ.ai/https://example.com/data.xlsx
 |--------|------|-------------|
 | `GET` | `/{url}` | Convert URL to Markdown |
 | `GET` | `/?url={url}` | Same, query param format |
+| `POST` | `/extract` | Structured data extraction (JSON schema) |
 | `GET` | `/health` | Health check |
 | `GET` | `/` | API info |
 
 ## How It Works
 
-Multi-tier conversion pipeline with 8-pass content extraction and quality scoring:
+Multi-tier conversion pipeline with 9-pass content extraction, quality scoring, and post-processing:
 
 ```
-URL ──→ Fetch HTML/Document
+URL ──→ YouTube? ──→ Transcript extraction (innertube API)
          │
          ├─ Document? (PDF, DOCX, XLSX, CSV)
          │   └─→ Document converter → Markdown
          │
-         ├─ Tier 1: 8-pass extraction pipeline
+         ├─ Tier 1: 9-pass extraction pipeline
          │   1. Readability (standard)
-         │   2. Article Extractor (different heuristics)
-         │   3. Readability on cleaned HTML
-         │   4. CSS content selectors
-         │   5. Schema.org / JSON-LD
-         │   6. Open Graph / meta tags
-         │   7. Text density analysis
-         │   8. Cleaned body fallback
+         │   2. Defuddle (by Obsidian team)
+         │   3. Article Extractor (different heuristics)
+         │   4. Readability on cleaned HTML
+         │   5. CSS content selectors
+         │   6. Schema.org / JSON-LD
+         │   7. Open Graph / meta tags
+         │   8. Text density analysis
+         │   9. Cleaned body fallback
+         │   Quality ratio check after each pass (< 15% = skip)
          │
          ├─ Tier 2: Playwright headless browser (SPA/JS-heavy)
-         │   └─→ Same 8-pass pipeline on rendered DOM
+         │   └─→ Same 9-pass pipeline on rendered DOM
          │
-         ├─ Tier 2.5: LLM extraction (quality < B)
-         │   └─→ nano-gpt API → structured extraction
-         │
-         └─ Tier 3: External API fallbacks (quality < C)
+         └─ Tier 2.5: LLM extraction (quality < B)
+             └─→ nano-gpt API → structured extraction
 ```
 
-Each tier only activates if the previous one produced insufficient quality.
+Each tier only activates if the previous one produced insufficient quality. Post-processing applies citation conversion and fit_markdown pruning when requested.
 
 ## Supported Formats
 
 | Format | Content-Type | Method |
 |--------|-------------|--------|
-| HTML | `text/html` | 8-pass extraction + Turndown |
+| HTML | `text/html` | 9-pass extraction + Turndown |
 | PDF | `application/pdf` | Text extraction via unpdf |
 | DOCX | `application/vnd...wordprocessingml` | mammoth → HTML → Turndown |
 | XLSX/XLS | `application/vnd...spreadsheetml` | SheetJS → Markdown tables |
 | CSV | `text/csv` | SheetJS → Markdown table |
+| YouTube | `youtube.com`, `youtu.be` | Transcript extraction with timestamps |
 
 Documents are also detected by URL extension (`.pdf`, `.docx`, `.xlsx`, `.csv`) when `Content-Type` is `application/octet-stream`.
 
@@ -135,6 +177,7 @@ Documents are also detected by URL extension (`.pdf`, `.docx`, `.xlsx`, `.csv`) 
 | Component | Role |
 |-----------|------|
 | [Mozilla Readability](https://github.com/mozilla/readability) | Primary content extraction |
+| [Defuddle](https://github.com/nicedoc/defuddle) | Obsidian team's content extraction |
 | [@extractus/article-extractor](https://github.com/nicedoc/extractus) | Alternative extraction heuristics |
 | [Turndown](https://github.com/mixmark-io/turndown) | HTML → Markdown conversion |
 | [linkedom](https://github.com/WebReflection/linkedom) | Lightweight DOM parser |
@@ -142,6 +185,7 @@ Documents are also detected by URL extension (`.pdf`, `.docx`, `.xlsx`, `.csv`) 
 | [unpdf](https://github.com/unjs/unpdf) | PDF text extraction |
 | [mammoth](https://github.com/mwilliamson/mammoth.js) | DOCX → HTML conversion |
 | [SheetJS](https://sheetjs.com) | XLSX/XLS/CSV parsing |
+| [Ajv](https://ajv.js.org) | JSON Schema validation for /extract |
 | [gpt-tokenizer](https://github.com/niieani/gpt-tokenizer) | cl100k_base token counting |
 | [Hono](https://hono.dev) | HTTP framework |
 
@@ -172,10 +216,8 @@ npm start
 | `PORT` | `3000` | Server port |
 | `ENABLE_BROWSER` | `true` | Enable Playwright fallback |
 | `NODE_ENV` | `production` | Node environment |
-| `NANOGPT_API_KEY` | — | nano-gpt API key for LLM tier |
+| `NANOGPT_API_KEY` | — | nano-gpt API key for LLM tier and /extract |
 | `NANOGPT_MODEL` | `meta-llama/llama-3.1-8b-instruct` | LLM model for extraction |
-| `EXTERNAL_API_LIMIT` | `200` | Monthly limit per external API |
-| `DATA_DIR` | `./data` | Directory for usage tracking |
 
 ### Nginx Reverse Proxy
 
@@ -184,16 +226,18 @@ An example nginx config is in `nginx/md.succ.ai.conf`:
 - Rate limiting: 10 req/s per IP, burst 20
 - Connection limit: 10 concurrent per IP
 - Proxy timeouts: 60s read (for Playwright renders)
+- Dedicated `/extract` location with 64KB body limit
 - Security headers (nosniff, X-Frame-Options, Referrer-Policy)
 
 ## Security
 
 - **SSRF protection**: URL validation, DNS resolution checks (IPv4 + IPv6), redirect validation per hop, Playwright route blocking
 - **Private IP blocking**: 127/8, 10/8, 172.16/12, 192.168/16, 169.254/16, CGNAT, cloud metadata hostnames, hex/octal IP formats
-- **Input limits**: 5MB response size, 5 max redirects, content-type validation
+- **Input limits**: 5MB response size, 5 max redirects, content-type validation, 64KB body limit on /extract
 - **Output sanitization**: Error messages stripped of internal paths/stack traces, URLs sanitized in responses
-- **Cache**: In-memory LRU with TTL, normalized cache keys (strips tracking params)
-- **LLM hardening**: Prompt injection protection (HTML sanitization, document delimiters, output validation)
+- **Cache**: In-memory LRU with TTL, normalized cache keys (strips tracking params), options-aware
+- **LLM hardening**: Prompt injection protection (HTML sanitization, document delimiters, output validation), schema field whitelist
+- **Rate limiting**: Per-IP rate limiting with Cloudflare CF-Connecting-IP support
 - **0 CVE**: All dependencies patched, monitored via Dependabot
 
 ## License

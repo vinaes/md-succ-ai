@@ -8,8 +8,8 @@ export function Pipeline() {
             Multi-tier conversion pipeline
           </h2>
           <p className="text-sm sm:text-base text-muted-foreground max-w-2xl mx-auto leading-relaxed px-2">
-            8-pass extraction, quality scoring, automatic fallback through 4 tiers.
-            Document format detection for PDF, DOCX, XLSX, CSV.
+            9-pass extraction, quality scoring, automatic fallback through 3 tiers.
+            YouTube transcripts, document formats, citation links, and fit_markdown.
           </p>
         </div>
 
@@ -20,28 +20,35 @@ export function Pipeline() {
           <pre className="p-4 sm:p-6 overflow-x-auto custom-scrollbar">
             <code className="text-xs sm:text-sm font-mono text-muted-foreground whitespace-pre leading-loose">{`URL
  │
+ ├─ YouTube? `}<span className="text-green">→ Transcript extraction</span>{`
+ │
  ├─ Document? (PDF, DOCX, XLSX, CSV)
  │  └─ `}<span className="text-green">Document converter → Markdown</span>{`
  │
- ├─ Tier 1: 8-pass extraction (200-500ms)
+ ├─ Tier 1: 9-pass extraction (200-500ms)
  │  1. Readability (standard)
- │  2. Article Extractor (alt heuristics)
- │  3. Readability on cleaned HTML
- │  4. CSS content selectors
- │  5. Schema.org / JSON-LD
- │  6. Open Graph / meta tags
- │  7. Text density analysis
- │  8. Cleaned body fallback
+ │  2. Defuddle (Obsidian team)
+ │  3. Article Extractor (alt heuristics)
+ │  4. Readability on cleaned HTML
+ │  5. CSS content selectors
+ │  6. Schema.org / JSON-LD
+ │  7. Open Graph / meta tags
+ │  8. Text density analysis
+ │  9. Cleaned body fallback
+ │  Quality ratio check (< 15% → skip)
  │
  │  Quality ≥ B? `}<span className="text-green">→ return Markdown</span>{`
  │
  ├─ Tier 2: Playwright browser (3-15s)
- │  └─ Same 8-pass on rendered DOM
+ │  └─ Same 9-pass on rendered DOM
  │
- ├─ Tier 2.5: LLM extraction
- │  └─ nano-gpt structured extract
- │
- └─ Tier 3: External API fallbacks`}</code>
+ └─ Tier 2.5: LLM extraction
+    └─ nano-gpt structured extract
+
+Post-processing:
+ ├─ `}<span className="text-blue">?links=citations</span>{` → numbered references
+ ├─ `}<span className="text-blue">?mode=fit</span>{`         → prune boilerplate
+ └─ `}<span className="text-blue">?max_tokens=N</span>{`    → truncate output`}</code>
           </pre>
         </div>
 
@@ -57,12 +64,12 @@ export function Pipeline() {
               <div className="h-px bg-border" />
               <div className="flex justify-between gap-2">
                 <span className="text-muted-foreground shrink-0">x-conversion-tier</span>
-                <span className="text-foreground text-right">fetch | browser | llm | document:*</span>
+                <span className="text-foreground text-right">fetch | browser | llm | youtube</span>
               </div>
               <div className="h-px bg-border" />
               <div className="flex justify-between gap-2">
                 <span className="text-muted-foreground shrink-0">x-extraction-method</span>
-                <span className="text-foreground text-right">readability | pdf | docx | ...</span>
+                <span className="text-foreground text-right">readability | defuddle | pdf | ...</span>
               </div>
               <div className="h-px bg-border" />
               <div className="flex justify-between gap-2">
@@ -96,13 +103,13 @@ export function Pipeline() {
               </div>
               <div className="h-px bg-border" />
               <div className="flex justify-between">
-                <span className="text-blue">GET</span>
-                <span className="text-muted-foreground">/health</span>
+                <span className="text-green">POST</span>
+                <span className="text-muted-foreground">/extract</span>
               </div>
               <div className="h-px bg-border" />
               <div className="flex justify-between">
                 <span className="text-blue">GET</span>
-                <span className="text-muted-foreground">/</span>
+                <span className="text-muted-foreground">/health</span>
               </div>
             </div>
 
@@ -110,7 +117,7 @@ export function Pipeline() {
             <div className="space-y-3 text-xs sm:text-sm font-mono">
               <div className="flex justify-between">
                 <span className="text-foreground">HTML</span>
-                <span className="text-muted-foreground">8-pass + Turndown</span>
+                <span className="text-muted-foreground">9-pass + Turndown</span>
               </div>
               <div className="h-px bg-border" />
               <div className="flex justify-between">
@@ -126,6 +133,11 @@ export function Pipeline() {
               <div className="flex justify-between">
                 <span className="text-foreground">XLSX / CSV</span>
                 <span className="text-muted-foreground">SheetJS → tables</span>
+              </div>
+              <div className="h-px bg-border" />
+              <div className="flex justify-between">
+                <span className="text-foreground">YouTube</span>
+                <span className="text-muted-foreground">transcript + timestamps</span>
               </div>
             </div>
           </div>

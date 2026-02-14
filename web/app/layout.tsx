@@ -14,15 +14,15 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: 'md.succ.ai — HTML to clean Markdown API',
-  description: 'Convert any webpage to clean, readable Markdown. Built for AI agents, MCP tools, and RAG pipelines. Mozilla Readability extraction strips ads, navigation, and sidebars. Playwright fallback for SPAs. cl100k_base token counting. No API key required.',
-  keywords: ['markdown', 'html to markdown', 'readability', 'web scraping', 'ai agents', 'mcp', 'rag', 'succ', 'content extraction', 'web to markdown', 'url to markdown', 'playwright', 'turndown', 'llm tools', 'ai tools'],
+  description: 'Convert any webpage to clean, readable Markdown. YouTube transcripts, citation-style links, fit_markdown mode, and structured data extraction. 9-pass extraction with Readability + Defuddle. Built for AI agents, MCP tools, and RAG pipelines. No API key required.',
+  keywords: ['markdown', 'html to markdown', 'readability', 'web scraping', 'ai agents', 'mcp', 'rag', 'succ', 'content extraction', 'web to markdown', 'url to markdown', 'playwright', 'turndown', 'llm tools', 'ai tools', 'youtube transcript', 'citation links', 'schema extraction', 'defuddle'],
   metadataBase: new URL('https://md.succ.ai'),
   alternates: {
     canonical: '/',
   },
   openGraph: {
     title: 'md.succ.ai — HTML to clean Markdown API',
-    description: 'Convert any URL to clean Markdown. Mozilla Readability extraction, Playwright SPA fallback, token counting. Built for AI agents and RAG pipelines. No API key required.',
+    description: 'Convert any URL to clean Markdown. 9-pass extraction, YouTube transcripts, citation links, fit mode, schema extraction. Built for AI agents and RAG pipelines.',
     type: 'website',
     url: 'https://md.succ.ai',
     siteName: 'md.succ.ai',
@@ -31,7 +31,7 @@ export const metadata: Metadata = {
   twitter: {
     card: 'summary',
     title: 'md.succ.ai — HTML to clean Markdown API',
-    description: 'Convert any URL to clean Markdown. Built for AI agents, MCP tools, and RAG pipelines. No API key required.',
+    description: 'Convert any URL to clean Markdown. YouTube transcripts, citation links, schema extraction. Built for AI agents and RAG pipelines.',
   },
   icons: {
     icon: [
@@ -72,7 +72,7 @@ const jsonLdString = JSON.stringify({
       '@type': 'WebApplication',
       name: 'md.succ.ai',
       url: 'https://md.succ.ai',
-      description: 'HTML to clean Markdown API. Convert any webpage to readable Markdown using Mozilla Readability extraction. Built for AI agents, MCP tools, and RAG pipelines.',
+      description: 'HTML to clean Markdown API. 9-pass content extraction with Readability and Defuddle. YouTube transcripts, citation links, fit_markdown, schema extraction. Built for AI agents, MCP tools, and RAG pipelines.',
       applicationCategory: 'DeveloperApplication',
       operatingSystem: 'Any',
       offers: {
@@ -86,11 +86,14 @@ const jsonLdString = JSON.stringify({
         url: 'https://succ.ai',
       },
       featureList: [
-        'Mozilla Readability content extraction',
+        '9-pass content extraction (Readability, Defuddle, article-extractor)',
         'Playwright headless Chromium for SPAs',
+        'YouTube transcript extraction',
+        'Citation-style link conversion',
+        'fit_markdown mode for LLM context optimization',
+        'Structured data extraction via JSON schema',
         'cl100k_base token counting',
-        'Two-tier conversion pipeline (200-500ms static, 3-15s SPA)',
-        'JSON and Markdown response formats',
+        'Quality scoring (A-F grades)',
         'Self-hostable with Docker',
         'No API key required',
       ],
@@ -111,7 +114,7 @@ const jsonLdString = JSON.stringify({
           name: 'Does md.succ.ai work with single-page applications (SPAs)?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'Yes. md.succ.ai uses a two-tier pipeline: fast HTTP fetch for static pages (200-500ms), with automatic Playwright headless Chromium fallback for JavaScript-heavy and SPA sites (3-15s).',
+            text: 'Yes. md.succ.ai uses a multi-tier pipeline: fast HTTP fetch with 9-pass extraction for static pages (200-500ms), with automatic Playwright headless Chromium fallback for JavaScript-heavy and SPA sites (3-15s), and LLM extraction as a last resort.',
           },
         },
         {
@@ -119,7 +122,7 @@ const jsonLdString = JSON.stringify({
           name: 'How is md.succ.ai different from other HTML to Markdown converters?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'md.succ.ai uses Mozilla Readability to extract only the article content, stripping navigation, ads, sidebars, and footers. Other services dump the entire HTML page as Markdown.',
+            text: 'md.succ.ai uses a 9-pass extraction pipeline (Readability, Defuddle, article-extractor, and more) to extract only the article content. It also offers YouTube transcript extraction, citation-style links, fit_markdown mode, and structured data extraction via JSON schema.',
           },
         },
         {

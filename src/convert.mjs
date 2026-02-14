@@ -10,8 +10,6 @@ import Ajv from 'ajv';
 import { extractText as extractPdfText } from 'unpdf';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
-import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs';
-import { join } from 'node:path';
 import { resolve4, resolve6 } from 'node:dns/promises';
 
 const turndown = new TurndownService({
@@ -491,7 +489,7 @@ function tryCleanedBody(html) {
 /**
  * Multi-pass extraction: try methods from best to worst.
  * Quality ratio check: if extracted text is < 15% of raw text, skip to next pass
- * (catches over-aggressive Readability stripping, inspired by Jina's 30% threshold).
+ * (catches over-aggressive Readability stripping).
  */
 async function extractContent(html, url) {
   // Compute raw text length once for ratio check
@@ -951,153 +949,6 @@ async function htmlToMarkdown(html, url) {
     method: extracted.method,
     quality,
   };
-}
-
-// ─── External API fallback (Tier 3) ───────────────────────────────────
-
-const DATA_DIR = process.env.DATA_DIR || './data';
-const MONTHLY_LIMIT = parseInt(process.env.EXTERNAL_API_LIMIT || '200', 10);
-const USAGE_FILE = join(DATA_DIR, 'usage.json');
-
-function loadUsage() {
-  try {
-    return JSON.parse(readFileSync(USAGE_FILE, 'utf-8'));
-  } catch {
-    return {};
-  }
-}
-
-function saveUsage(data) {
-  try {
-    if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-    const tmp = USAGE_FILE + '.tmp';
-    writeFileSync(tmp, JSON.stringify(data, null, 2));
-    renameSync(tmp, USAGE_FILE);
-  } catch (e) {
-    console.error('[ext] failed to save usage:', e.message);
-  }
-}
-
-function getMonthlyCount(provider) {
-  const key = new Date().toISOString().slice(0, 7); // YYYY-MM
-  const data = loadUsage();
-  return data[key]?.[provider] ?? 0;
-}
-
-function trackUsage(provider) {
-  const key = new Date().toISOString().slice(0, 7);
-  const data = loadUsage();
-  if (!data[key]) data[key] = {};
-  data[key][provider] = (data[key][provider] ?? 0) + 1;
-  saveUsage(data);
-  return data[key][provider];
-}
-
-/**
- * External fallback: markdown.new (Cloudflare edge, fast)
- * Returns text/markdown format: "Title: ...\nURL Source: ...\nMarkdown Content:\n..."
- */
-async function tryExternalMarkdownNew(url) {
-  if (isBlockedUrl(url)) return null;
-  const provider = 'markdown.new';
-  const count = getMonthlyCount(provider);
-  if (count >= MONTHLY_LIMIT) {
-    console.log(`[ext] quota exceeded: ${provider} (${count}/${MONTHLY_LIMIT})`);
-    return null;
-  }
-
-  try {
-    const t0 = performance.now();
-    const res = await fetch(`https://markdown.new/${url}`, {
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!res.ok) return null;
-
-    const body = await res.text();
-    if (!body || body.length < 50) return null;
-
-    // Parse text/markdown format
-    const contentIdx = body.indexOf('Markdown Content:\n');
-    const markdown = contentIdx >= 0 ? body.slice(contentIdx + 18).trim() : body.trim();
-    if (!markdown || markdown.length < 50) return null;
-
-    // Extract title from "Title: ..." line
-    const titleMatch = body.match(/^Title:\s*(.+)$/m);
-    const title = titleMatch?.[1]?.trim() || '';
-
-    const tokens = countTokens(markdown);
-    const quality = scoreMarkdown(markdown);
-    const used = trackUsage(provider);
-    const ms = Math.round(performance.now() - t0);
-
-    console.log(`[ext] ${provider} ${tokens}tok ${ms}ms ${quality.grade}(${quality.score}) [${used}/${MONTHLY_LIMIT}]`);
-
-    return {
-      title,
-      markdown,
-      tokens,
-      readability: false,
-      excerpt: '',
-      byline: '',
-      siteName: '',
-      htmlLength: 0,
-      method: `external:${provider}`,
-      quality,
-    };
-  } catch (e) {
-    console.error(`[ext] ${provider} failed:`, e.message);
-    return null;
-  }
-}
-
-/**
- * External fallback: Jina Reader (LLM-based, ReaderLM-v2)
- */
-async function tryExternalJina(url) {
-  if (isBlockedUrl(url)) return null;
-  const provider = 'jina';
-  const count = getMonthlyCount(provider);
-  if (count >= MONTHLY_LIMIT) {
-    console.log(`[ext] quota exceeded: ${provider} (${count}/${MONTHLY_LIMIT})`);
-    return null;
-  }
-
-  try {
-    const t0 = performance.now();
-    const res = await fetch(`https://r.jina.ai/${url}`, {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(20000),
-    });
-    if (!res.ok) return null;
-
-    const json = await res.json();
-    const data = json.data || json;
-    const markdown = data.content || '';
-    if (!markdown || markdown.length < 50) return null;
-
-    const tokens = data.usage?.tokens || json.meta?.usage?.tokens || countTokens(markdown);
-    const quality = scoreMarkdown(markdown);
-    const used = trackUsage(provider);
-    const ms = Math.round(performance.now() - t0);
-
-    console.log(`[ext] ${provider} ${tokens}tok ${ms}ms ${quality.grade}(${quality.score}) [${used}/${MONTHLY_LIMIT}]`);
-
-    return {
-      title: data.title || '',
-      markdown,
-      tokens,
-      readability: false,
-      excerpt: data.description || '',
-      byline: '',
-      siteName: '',
-      htmlLength: 0,
-      method: `external:${provider}`,
-      quality,
-    };
-  } catch (e) {
-    console.error(`[ext] ${provider} failed:`, e.message);
-    return null;
-  }
 }
 
 // ─── LLM extraction (Tier 2.5) ────────────────────────────────────────
@@ -2091,23 +1942,6 @@ export async function convert(url, browserPool = null, options = {}) {
       }
     } catch (e) {
       console.error(`[convert] LLM extraction failed: ${e.message}`);
-    }
-  }
-
-  // Tier 3: External API fallback when quality < C
-  if ((result?.quality?.score ?? 0) < 0.4) {
-    const mdNew = await tryExternalMarkdownNew(url);
-    if (mdNew && mdNew.quality.score > (result?.quality?.score ?? 0)) {
-      result = mdNew;
-      tier = 'external:markdown.new';
-    }
-    // Still < C? Try Jina (slower but LLM-based)
-    if ((result?.quality?.score ?? 0) < 0.4) {
-      const jina = await tryExternalJina(url);
-      if (jina && jina.quality.score > (result?.quality?.score ?? 0)) {
-        result = jina;
-        tier = 'external:jina';
-      }
     }
   }
 
