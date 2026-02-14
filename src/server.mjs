@@ -161,8 +161,9 @@ app.post('/extract', async (c) => {
     console.log(`[extract] ${safeLog(targetUrl)}`);
     // Use full conversion pipeline (fetch → 9-pass → Playwright fallback → LLM)
     // to get clean Markdown, then extract structured data from it
+    // forceBrowser: always try Playwright for /extract — SSR often misses dynamic content
     const pool = ENABLE_BROWSER ? browserPool : null;
-    const converted = await convert(targetUrl, pool);
+    const converted = await convert(targetUrl, pool, { forceBrowser: true });
     const result = await extractSchema(converted.markdown, targetUrl, schema);
     return c.json(result);
   } catch (err) {
