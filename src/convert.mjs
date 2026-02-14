@@ -2,8 +2,9 @@ import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import TurndownService from 'turndown';
 import { encode } from 'gpt-tokenizer';
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
+import { resolve4, resolve6 } from 'node:dns/promises';
 
 const turndown = new TurndownService({
   headingStyle: 'atx',
@@ -431,7 +432,7 @@ function htmlToMarkdown(html, url) {
 
   // Schema.org and OpenGraph may provide pre-built markdown
   const markdown = extracted.prebuiltMarkdown || turndown.turndown(extracted.contentHtml);
-  const tokens = encode(markdown).length;
+  const tokens = countTokens(markdown);
   const quality = scoreMarkdown(markdown);
 
   return {
@@ -465,7 +466,9 @@ function loadUsage() {
 function saveUsage(data) {
   try {
     if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-    writeFileSync(USAGE_FILE, JSON.stringify(data, null, 2));
+    const tmp = USAGE_FILE + '.tmp';
+    writeFileSync(tmp, JSON.stringify(data, null, 2));
+    renameSync(tmp, USAGE_FILE);
   } catch (e) {
     console.error('[ext] failed to save usage:', e.message);
   }
@@ -518,7 +521,7 @@ async function tryExternalMarkdownNew(url) {
     const titleMatch = body.match(/^Title:\s*(.+)$/m);
     const title = titleMatch?.[1]?.trim() || '';
 
-    const tokens = encode(markdown).length;
+    const tokens = countTokens(markdown);
     const quality = scoreMarkdown(markdown);
     const used = trackUsage(provider);
     const ms = Math.round(performance.now() - t0);
@@ -568,7 +571,7 @@ async function tryExternalJina(url) {
     const markdown = data.content || '';
     if (!markdown || markdown.length < 50) return null;
 
-    const tokens = data.usage?.tokens || json.meta?.usage?.tokens || encode(markdown).length;
+    const tokens = data.usage?.tokens || json.meta?.usage?.tokens || countTokens(markdown);
     const quality = scoreMarkdown(markdown);
     const used = trackUsage(provider);
     const ms = Math.round(performance.now() - t0);
@@ -596,9 +599,45 @@ async function tryExternalJina(url) {
 // ─── Security ─────────────────────────────────────────────────────────
 
 const MAX_RESPONSE_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_REDIRECTS = 5;
+
+const METADATA_HOSTNAMES = [
+  'metadata.google.internal',
+  'metadata.goog',
+  'instance-data.ec2.internal',
+];
 
 /**
- * Block private/internal IPs and non-HTTP protocols (SSRF protection)
+ * Approximate token count for large texts (avoids blocking event loop)
+ */
+function countTokens(text) {
+  if (text.length > 500_000) {
+    return Math.ceil(text.length / 4);
+  }
+  return encode(text).length;
+}
+
+/**
+ * Check if an IPv4 address is private/internal
+ */
+function isPrivateIP(ip) {
+  const parts = ip.split('.').map(Number);
+  if (parts.length !== 4 || !parts.every((n) => n >= 0 && n <= 255)) return false;
+  const [a, b, c] = parts;
+  if (a === 0) return true;                                 // 0.0.0.0/8
+  if (a === 10) return true;                                // 10.0.0.0/8
+  if (a === 127) return true;                               // 127.0.0.0/8
+  if (a === 100 && b >= 64 && b <= 127) return true;        // 100.64.0.0/10 CGNAT
+  if (a === 169 && b === 254) return true;                  // 169.254.0.0/16 link-local / cloud metadata
+  if (a === 172 && b >= 16 && b <= 31) return true;         // 172.16.0.0/12
+  if (a === 192 && b === 168) return true;                  // 192.168.0.0/16
+  if (a === 198 && b >= 18 && b <= 19) return true;         // 198.18.0.0/15 benchmark
+  if (a === 192 && b === 0 && c === 0) return true;         // 192.0.0.0/24 IETF protocol
+  return false;
+}
+
+/**
+ * Block private/internal URLs and non-HTTP protocols (SSRF protection)
  */
 function isBlockedUrl(urlStr) {
   try {
@@ -608,17 +647,24 @@ function isBlockedUrl(urlStr) {
     if (!['http:', 'https:'].includes(u.protocol)) return true;
     if (host === 'localhost' || host === '[::1]' || host === '') return true;
 
-    // Block IPv6 (simplified — block all bracketed)
+    // Block all IPv6 (simplified)
     if (host.startsWith('[')) return true;
 
+    // Block cloud metadata hostnames
+    const bare = host.endsWith('.') ? host.slice(0, -1) : host;
+    if (METADATA_HOSTNAMES.includes(bare)) return true;
+
+    // Block numeric/hex/octal IP formats (e.g. 0x7f000001, 2130706433)
+    if (/^0x[0-9a-f]+$/i.test(host)) return true;
+    if (/^\d+$/.test(host)) return true;
+
+    // Check dotted IPv4
     const parts = host.split('.').map(Number);
     if (parts.length === 4 && parts.every((n) => n >= 0 && n <= 255)) {
-      if (parts[0] === 0) return true;                                        // 0.0.0.0/8
-      if (parts[0] === 10) return true;                                       // 10.0.0.0/8
-      if (parts[0] === 127) return true;                                      // 127.0.0.0/8
-      if (parts[0] === 169 && parts[1] === 254) return true;                  // 169.254.0.0/16
-      if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;  // 172.16.0.0/12
-      if (parts[0] === 192 && parts[1] === 168) return true;                  // 192.168.0.0/16
+      // Block octal notation (e.g. 0177.0.0.1 = 127.0.0.1 in some resolvers)
+      const octets = host.split('.');
+      if (octets.some((o) => o.length > 1 && o.startsWith('0') && /^\d+$/.test(o))) return true;
+      return isPrivateIP(host);
     }
 
     return false;
@@ -628,35 +674,107 @@ function isBlockedUrl(urlStr) {
 }
 
 /**
- * Fetch HTML via plain HTTP
+ * Check if an IPv6 address is private/internal
+ */
+function isPrivateIPv6(ip) {
+  const lower = ip.toLowerCase();
+  if (lower === '::1') return true;                     // loopback
+  if (lower.startsWith('fe80:')) return true;            // link-local
+  if (lower.startsWith('fc') || lower.startsWith('fd')) return true; // unique local (fc00::/7)
+  if (lower.startsWith('::ffff:')) {                     // IPv4-mapped IPv6
+    const v4 = lower.slice(7);
+    return isPrivateIP(v4);
+  }
+  return false;
+}
+
+/**
+ * Resolve DNS and validate resolved IPs are not private (anti DNS-rebinding)
+ */
+async function resolveAndValidate(hostname) {
+  // Skip for direct IP addresses (already validated by isBlockedUrl)
+  const parts = hostname.split('.').map(Number);
+  if (parts.length === 4 && parts.every((n) => n >= 0 && n <= 255)) return;
+  if (/^0x[0-9a-f]+$/i.test(hostname) || /^\d+$/.test(hostname)) return;
+
+  // Check IPv4 records
+  try {
+    const ips = await resolve4(hostname);
+    for (const ip of ips) {
+      if (isPrivateIP(ip)) {
+        throw new Error('Blocked URL: resolves to private address');
+      }
+    }
+  } catch (e) {
+    if (e.message?.includes('Blocked URL')) throw e;
+  }
+
+  // Check IPv6 records
+  try {
+    const ips = await resolve6(hostname);
+    for (const ip of ips) {
+      if (isPrivateIPv6(ip)) {
+        throw new Error('Blocked URL: resolves to private address');
+      }
+    }
+  } catch (e) {
+    if (e.message?.includes('Blocked URL')) throw e;
+    // DNS resolution failed — let fetch handle it
+  }
+}
+
+/**
+ * Fetch HTML via plain HTTP with manual redirect validation
  */
 async function fetchHTML(url) {
   if (isBlockedUrl(url)) throw new Error('Blocked URL: private or internal address');
+  await resolveAndValidate(new URL(url).hostname);
 
-  const res = await fetch(url, {
-    headers: {
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-      Accept:
-        'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.9',
-    },
-    redirect: 'follow',
-    signal: AbortSignal.timeout(15000),
-  });
+  let currentUrl = url;
 
-  // Check content-length before reading body
-  const cl = parseInt(res.headers.get('content-length') || '0', 10);
-  if (cl > MAX_RESPONSE_SIZE) {
-    throw new Error(`Page too large: ${(cl / 1024 / 1024).toFixed(1)}MB`);
+  for (let i = 0; i <= MAX_REDIRECTS; i++) {
+    const res = await fetch(currentUrl, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        Accept:
+          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      redirect: 'manual',
+      signal: AbortSignal.timeout(15000),
+    });
+
+    // Handle redirects manually — validate each hop
+    if ([301, 302, 303, 307, 308].includes(res.status)) {
+      const location = res.headers.get('location');
+      res.body?.cancel?.();
+      if (!location) break;
+
+      currentUrl = new URL(location, currentUrl).href;
+
+      if (isBlockedUrl(currentUrl)) {
+        throw new Error('Blocked URL: redirect to private address');
+      }
+      await resolveAndValidate(new URL(currentUrl).hostname);
+      continue;
+    }
+
+    // Check content-length before reading body
+    const cl = parseInt(res.headers.get('content-length') || '0', 10);
+    if (cl > MAX_RESPONSE_SIZE) {
+      throw new Error(`Page too large: ${(cl / 1024 / 1024).toFixed(1)}MB`);
+    }
+
+    const html = await res.text();
+    if (html.length > MAX_RESPONSE_SIZE) {
+      throw new Error(`Page too large: ${(html.length / 1024 / 1024).toFixed(1)}MB`);
+    }
+
+    return { html, status: res.status };
   }
 
-  const html = await res.text();
-  if (html.length > MAX_RESPONSE_SIZE) {
-    throw new Error(`Page too large: ${(html.length / 1024 / 1024).toFixed(1)}MB`);
-  }
-
-  return { html, status: res.status };
+  throw new Error('Too many redirects');
 }
 
 /**
@@ -664,16 +782,22 @@ async function fetchHTML(url) {
  */
 async function fetchWithBrowser(browserPool, url) {
   if (isBlockedUrl(url)) throw new Error('Blocked URL: private or internal address');
+  await resolveAndValidate(new URL(url).hostname);
 
   const page = await browserPool.newPage();
   try {
     await page.goto(url, { waitUntil: 'networkidle', timeout: 25000 });
     await page.waitForTimeout(2000);
-    return await page.content();
+    const html = await page.content();
+    if (html.length > MAX_RESPONSE_SIZE) {
+      throw new Error(`Page too large: ${(html.length / 1024 / 1024).toFixed(1)}MB`);
+    }
+    return html;
   } finally {
     const ctx = page.context();
     await page.close();
     await ctx.close();
+    browserPool.release();
   }
 }
 

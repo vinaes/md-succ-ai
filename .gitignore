@@ -32,5 +32,8 @@ Desktop.ini
 tmp/
 temp/
 
+# Runtime data
+data/
+
 # Windows
 nul

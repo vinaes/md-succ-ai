@@ -45,13 +45,56 @@ function sanitizeError(msg) {
     .trim() || 'Conversion failed';
 }
 
+/**
+ * Normalize URL for cache key — strip tracking params, sort, remove fragment
+ */
+function normalizeCacheKey(url) {
+  try {
+    const u = new URL(url);
+    const TRACKING = ['utm_source','utm_medium','utm_campaign','utm_term','utm_content',
+                      'fbclid','gclid','mc_cid','mc_eid'];
+    for (const p of TRACKING) u.searchParams.delete(p);
+    u.searchParams.sort();
+    u.hash = '';
+    return u.href;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Sanitize string for safe logging (prevent log injection)
+ */
+function safeLog(str) {
+  return String(str).replace(/[\n\r\x1b\x00-\x1f]/g, '').slice(0, 500);
+}
+
+/**
+ * Sanitize URL for error responses (strip query/fragment)
+ */
+function sanitizeUrl(url) {
+  try {
+    const u = new URL(url);
+    return `${u.origin}${u.pathname}`.slice(0, 2048);
+  } catch {
+    return '[invalid URL]';
+  }
+}
+
 // CORS — allow all origins (public API)
 app.use('*', cors());
 
-// Health check
-app.get('/health', (c) =>
-  c.json({ status: 'ok', browser: ENABLE_BROWSER, uptime: process.uptime() }),
-);
+// Security headers
+app.use('*', async (c, next) => {
+  await next();
+  c.header('x-content-type-options', 'nosniff');
+  c.header('x-frame-options', 'DENY');
+  c.header('referrer-policy', 'no-referrer');
+  c.header('permissions-policy', 'camera=(), microphone=(), geolocation=()');
+});
+
+// Health check (minimal — no config/uptime leaks)
+app.get('/health', (c) => c.json({ status: 'ok' }));
 
 // Main endpoint: GET /:url
 // Also handles: GET /https://example.com/path
@@ -98,23 +141,24 @@ app.get('/*', async (c) => {
   try {
     new URL(targetUrl);
   } catch {
-    return c.json({ error: 'Invalid URL', url: targetUrl }, 400);
+    return c.json({ error: 'Invalid URL' }, 400);
   }
 
   try {
     // Check cache first (anti-amplification)
-    const cached = getCached(targetUrl);
+    const cacheKey = normalizeCacheKey(targetUrl);
+    const cached = getCached(cacheKey);
     const isCacheHit = !!cached;
     let result;
 
     if (cached) {
       result = cached;
-      console.log(`[hit] ${targetUrl} ${result.tokens}tok`);
+      console.log(`[hit] ${safeLog(targetUrl)} ${result.tokens}tok`);
     } else {
-      console.log(`[req] ${targetUrl}`);
+      console.log(`[req] ${safeLog(targetUrl)}`);
       const pool = ENABLE_BROWSER ? browserPool : null;
       result = await convert(targetUrl, pool);
-      setCache(targetUrl, result);
+      setCache(cacheKey, result);
       const q = result.quality || { score: 0, grade: 'F' };
       console.log(`[ok]  ${result.tier} ${result.tokens}tok ${result.totalMs}ms ${q.grade}(${q.score}) ${result.method || 'unknown'}`);
     }
@@ -170,12 +214,14 @@ app.get('/*', async (c) => {
 
     return c.body(`${header}\n${result.markdown}`);
   } catch (err) {
-    console.error(`[err] ${targetUrl} — ${err.message}`);
+    console.error(`[err] ${safeLog(targetUrl)} — ${err.message}`);
     const status = err.message?.includes('Blocked URL') ? 403
       : err.message?.includes('too large') ? 413
+      : err.message?.includes('Too many redirects') ? 502
+      : err.message?.includes('pool exhausted') ? 503
       : 500;
     return c.json(
-      { error: sanitizeError(err.message), url: targetUrl },
+      { error: sanitizeError(err.message), url: sanitizeUrl(targetUrl) },
       status,
     );
   }
