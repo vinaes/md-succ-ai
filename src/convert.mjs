@@ -386,7 +386,7 @@ function tryCleanedBody(html) {
   const body = document.body;
   if (!body) return null;
   const text = body.textContent?.trim() || '';
-  if (text.length < 50) return null;
+  if (!isUsableText(text, 50)) return null;
 
   return {
     contentHtml: body.innerHTML,
@@ -465,12 +465,16 @@ function scoreMarkdown(markdown) {
   const linkTextLen = linkTexts.reduce((sum, l) => sum + l.length, 0);
   const linkDensity = mdLen > 0 ? Math.max(0, 1 - (linkTextLen / mdLen) * 2) : 1;
 
+  // Challenge/error page penalty: if content matches error patterns, it's not real content
+  const errorHits = ERROR_PATTERNS.filter((p) => lower.includes(p)).length;
+  const challengePenalty = errorHits > 0 ? 0.1 : 1;
+
   const score =
-    length * 0.15 +
+    (length * 0.15 +
     textDensity * 0.25 +
     structure * 0.2 +
     boilerplate * 0.2 +
-    linkDensity * 0.2;
+    linkDensity * 0.2) * challengePenalty;
 
   const clamped = Math.round(Math.min(Math.max(score, 0), 1) * 100) / 100;
 
@@ -1358,7 +1362,8 @@ export async function convert(url, browserPool = null) {
 
   // Tier 2: Patchright browser fallback if fetch failed or extraction quality is low
   const goodExtraction = result?.readability || result?.method === 'readability-cleaned' || result?.method === 'article-extractor';
-  const needsBrowser = fetchFailed ||
+  const challengeTitle = result?.title && ERROR_PATTERNS.some((p) => result.title.toLowerCase().includes(p));
+  const needsBrowser = fetchFailed || challengeTitle ||
     (!goodExtraction && (result?.quality?.score ?? 0) < 0.6);
   if (browserPool && needsBrowser) {
     try {
