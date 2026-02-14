@@ -96,9 +96,14 @@ export function Footer() {
           <p className="text-sm text-muted-foreground">
             &copy; 2026 Vinaes Code Ltd. Released under the FSL 1.1.
           </p>
-          <p className="text-xs text-muted-foreground/60">
-            Powered by <Link href="https://succ.ai" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">succ.ai</Link>
-          </p>
+          <div className="text-xs text-muted-foreground/60 text-right">
+            <p>
+              Powered by <Link href="https://succ.ai" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">succ.ai</Link>
+            </p>
+            <p className="mt-1">
+              LLM models by <Link href="https://nano-gpt.com" target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">NanoGPT</Link>
+            </p>
+          </div>
         </div>
       </div>
     </footer>

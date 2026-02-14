@@ -239,6 +239,7 @@ Cache keys use SHA-256 hashes to prevent poisoning via long/malicious URLs. Fall
 | [unpdf](https://github.com/unjs/unpdf) | PDF text extraction |
 | [mammoth](https://github.com/mwilliamson/mammoth.js) | DOCX → HTML conversion |
 | [SheetJS](https://sheetjs.com) | XLSX/XLS/CSV parsing |
+| [NanoGPT](https://nano-gpt.com) | LLM API for Tier 2.5 and /extract |
 | [Ajv](https://ajv.js.org) | JSON Schema validation for /extract |
 | [gpt-tokenizer](https://github.com/niieani/gpt-tokenizer) | cl100k_base token counting |
 
@@ -333,6 +334,8 @@ An example nginx config is in `nginx/md.succ.ai.conf`:
 ## License
 
 [FSL-1.1-Apache-2.0](LICENSE) — Free for non-competitive use. Apache 2.0 after 2 years.
+
+> **Disclaimer:** Not affiliated with [NanoGPT](https://nano-gpt.com). LLM features use the NanoGPT API for pay-per-prompt model access.
 
 ---
 
