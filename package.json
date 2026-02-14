@@ -25,6 +25,7 @@
     "defuddle": "^0.6.6",
     "gpt-tokenizer": "^3.4.0",
     "hono": "^4.7.0",
+    "ioredis": "^5.9.3",
     "linkedom": "^0.18.0",
     "mammoth": "^1.11.0",
     "patchright": "^1.50.0",

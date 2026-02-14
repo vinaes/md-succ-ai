@@ -1,17 +1,47 @@
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: md-succ-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --maxmemory 128mb
+      --maxmemory-policy allkeys-lru
+      --save ""
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+
   md-api:
     build: .
     container_name: md-succ-ai
     restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
     ports:
       - "127.0.0.1:3100:3000"
     environment:
       - PORT=3000
       - ENABLE_BROWSER=true
       - NODE_ENV=production
+      - REDIS_URL=redis://redis:6379
       - NANOGPT_API_KEY=${NANOGPT_API_KEY:-}
       - NANOGPT_MODEL=${NANOGPT_MODEL:-meta-llama/llama-3.3-70b-instruct}
       - NANOGPT_EXTRACT_MODEL=${NANOGPT_EXTRACT_MODEL:-}
+      - SCRAPFLY_API_KEY=${SCRAPFLY_API_KEY:-}
+      - ZENROWS_API_KEY=${ZENROWS_API_KEY:-}
+      - SCRAPINGBEE_API_KEY=${SCRAPINGBEE_API_KEY:-}
+    networks:
+      - internal
     deploy:
       resources:
         limits:
@@ -21,3 +51,7 @@ services:
     shm_size: "512mb"
     security_opt:
       - no-new-privileges:true
+
+networks:
+  internal:
+    driver: bridge
