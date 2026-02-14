@@ -190,6 +190,8 @@ const JUNK_SELECTORS = [
 ];
 
 const CONTENT_SELECTORS = [
+  // Platform-specific: prefer tighter content selectors first
+  'article.markdown-body',  // GitHub readme / wiki
   'article',
   'main',
   '[role="main"]',
@@ -557,12 +559,14 @@ async function extractContent(html, url) {
       const result = await pass();
       if (!result) continue;
 
-      // Quality ratio check: skip if extracted content is suspiciously small
+      // Quality ratio check: skip if extracted content is suspiciously small.
+      // Exception: if extractor found >= 1000 chars, it's real content even on
+      // heavy pages (GitHub 426KB HTML with 1.7KB readme = 0.4% ratio but valid).
       if (rawTextLen > 500) {
         const { document: extDoc } = parseHTML(`<html><body>${result.contentHtml}</body></html>`);
         const extTextLen = extDoc.body?.textContent?.trim().length || 0;
         const ratio = extTextLen / rawTextLen;
-        if (ratio < 0.15) {
+        if (ratio < 0.15 && extTextLen < 1000) {
           console.log(`[extract] ${result.method} ratio too low: ${(ratio * 100).toFixed(1)}% — trying next pass`);
           continue;
         }
