@@ -4,7 +4,8 @@ import TurndownService from 'turndown';
 import { encode } from 'gpt-tokenizer';
 import { extractFromHtml } from '@extractus/article-extractor';
 import { Defuddle } from 'defuddle/node';
-import { YoutubeTranscript } from 'youtube-transcript';
+// youtube-transcript npm package is broken (returns empty arrays).
+// Using custom implementation: fetch page → extract captionTracks → fetch timedtext XML.
 import Ajv from 'ajv';
 import { extractText as extractPdfText } from 'unpdf';
 import mammoth from 'mammoth';
@@ -1592,35 +1593,121 @@ async function fetchWithBrowser(browserPool, url) {
 const YOUTUBE_REGEX = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/;
 
 /**
+ * Fetch YouTube transcript by scraping the watch page for captionTracks,
+ * then fetching the timedtext XML. No API key or npm package needed.
+ */
+async function fetchYouTubeTranscript(videoId) {
+  // Fetch the watch page
+  const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const res = await fetch(watchUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) throw new Error(`YouTube returned ${res.status}`);
+  const html = await res.text();
+
+  // Extract captionTracks JSON array using bracket counting
+  // (regex .*? fails because tracks contain nested objects)
+  const ctIdx = html.indexOf('"captionTracks"');
+  if (ctIdx === -1) throw new Error('No caption tracks found');
+  const arrStart = html.indexOf('[', ctIdx);
+  if (arrStart === -1 || arrStart > ctIdx + 50) throw new Error('Malformed captionTracks');
+  let depth = 0;
+  let arrEnd = -1;
+  for (let i = arrStart; i < html.length && i < arrStart + 10000; i++) {
+    if (html[i] === '[') depth++;
+    else if (html[i] === ']') { depth--; if (depth === 0) { arrEnd = i + 1; break; } }
+  }
+  if (arrEnd === -1) throw new Error('Could not find captionTracks end');
+
+  let tracks;
+  try {
+    tracks = JSON.parse(html.slice(arrStart, arrEnd));
+  } catch {
+    throw new Error('Failed to parse caption tracks');
+  }
+  if (!tracks?.length) throw new Error('Empty caption tracks');
+
+  // Prefer English, fall back to first track (often auto-generated)
+  const track = tracks.find((t) => t.languageCode === 'en')
+    || tracks.find((t) => t.languageCode?.startsWith('en'))
+    || tracks[0];
+
+  if (!track?.baseUrl) throw new Error('No caption URL found');
+
+  // Fetch the timedtext XML
+  const xmlRes = await fetch(track.baseUrl, { signal: AbortSignal.timeout(10000) });
+  if (!xmlRes.ok) throw new Error(`Timedtext returned ${xmlRes.status}`);
+  const xml = await xmlRes.text();
+
+  // Parse XML: <text start="1.23" dur="4.56">caption text</text>
+  const segments = [];
+  const textRegex = /<text\s+start="([^"]*)"(?:\s+dur="([^"]*)")?\s*>([\s\S]*?)<\/text>/g;
+  let m;
+  while ((m = textRegex.exec(xml)) !== null) {
+    const startSec = parseFloat(m[1]) || 0;
+    const text = m[3]
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/<[^>]+>/g, '')
+      .trim();
+    if (text) {
+      segments.push({ offset: Math.round(startSec * 1000), text });
+    }
+  }
+  return segments;
+}
+
+/**
+ * Extract title from YouTube page via oEmbed.
+ * Safe: videoId validated by YOUTUBE_REGEX, URL hardcoded to youtube.com.
+ */
+async function fetchYouTubeTitle(videoId) {
+  try {
+    const oEmbed = await fetch(
+      `https://www.youtube.com/oembed?url=https://youtube.com/watch?v=${videoId}&format=json`,
+      { signal: AbortSignal.timeout(5000) },
+    );
+    if (oEmbed.ok) {
+      const data = await oEmbed.json();
+      if (data.title) return data.title;
+    }
+  } catch (e) {
+    console.log(`[youtube] oEmbed failed for ${videoId}: ${e.message}`);
+  }
+  return `YouTube Video ${videoId}`;
+}
+
+/**
  * Extract YouTube video transcript as markdown.
  * Returns null if URL is not YouTube or transcript unavailable.
+ * Custom implementation — youtube-transcript npm package returns empty arrays.
  */
 async function tryYouTube(url) {
   const match = url.match(YOUTUBE_REGEX);
-  if (!match) return null;
+  if (!match) {
+    if (url.includes('youtube') || url.includes('youtu.be')) {
+      console.log(`[youtube] URL looks like YouTube but regex didn't match: ${url.slice(0, 120)}`);
+    }
+    return null;
+  }
 
   const videoId = match[1];
   try {
     const t0 = performance.now();
-    const segments = await YoutubeTranscript.fetchTranscript(videoId);
-    if (!segments?.length) return null;
 
-    // Fetch video title via oEmbed (no API key needed)
-    // Safe: videoId is validated by YOUTUBE_REGEX ([a-zA-Z0-9_-]{11}),
-    // URL is hardcoded to youtube.com — no SSRF risk
-    let title = `YouTube Video ${videoId}`;
-    try {
-      const oEmbed = await fetch(
-        `https://www.youtube.com/oembed?url=https://youtube.com/watch?v=${videoId}&format=json`,
-        { signal: AbortSignal.timeout(5000) },
-      );
-      if (oEmbed.ok) {
-        const data = await oEmbed.json();
-        if (data.title) title = data.title;
-      }
-    } catch (e) {
-      console.log(`[youtube] oEmbed failed for ${videoId}: ${e.message}`);
-    }
+    // Fetch transcript and title in parallel
+    const [segments, title] = await Promise.all([
+      fetchYouTubeTranscript(videoId),
+      fetchYouTubeTitle(videoId),
+    ]);
+    if (!segments?.length) return null;
 
     // Format transcript with timestamps (handles hours for long videos)
     const lines = segments.map((s) => {
@@ -1634,9 +1721,7 @@ async function tryYouTube(url) {
       return `[${ts}] ${s.text}`;
     });
 
-    // Also build plain text version (no timestamps) for fit_markdown
     const plainText = segments.map((s) => s.text).join(' ');
-
     const markdown = `# ${title}\n\n**Video:** ${url}\n\n## Transcript\n\n${lines.join('\n')}`;
     const tokens = countTokens(markdown);
     const quality = scoreMarkdown(markdown);
@@ -1655,7 +1740,6 @@ async function tryYouTube(url) {
       htmlLength: 0,
       method: 'youtube-transcript',
       quality,
-      // Extra: plain transcript for fit_markdown
       plainTranscript: plainText,
     };
   } catch (e) {
