@@ -21,7 +21,7 @@
     "@extractus/article-extractor": "^8.0.20",
     "@hono/node-server": "^1.13.0",
     "@mozilla/readability": "^0.6.0",
-    "gpt-tokenizer": "^2.8.1",
+    "gpt-tokenizer": "^3.4.0",
     "hono": "^4.7.0",
     "linkedom": "^0.18.0",
     "mammoth": "^1.11.0",
