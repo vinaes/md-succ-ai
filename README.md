@@ -1,7 +1,9 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/●%20md.succ.ai-html%20to%20markdown-3fb950?style=for-the-badge&labelColor=0d1117" alt="md.succ.ai">
+  <img src="https://img.shields.io/badge/●%20md.succ.ai-3fb950?style=for-the-badge&labelColor=0d1117" alt="md.succ.ai">
+  <br/>
+  <em>html to markdown</em>
   <br/><br/>
-  <em>Clean Markdown from any URL. Fast, accurate, agent-friendly.</em>
+  Clean Markdown from any URL. Fast, accurate, agent-friendly.
 </p>
 
 <p align="center">

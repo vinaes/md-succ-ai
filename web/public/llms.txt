@@ -1,0 +1,92 @@
+# md.succ.ai
+
+> HTML to clean Markdown API. Convert any webpage to readable Markdown optimized for AI consumption.
+
+## What it does
+
+md.succ.ai converts any URL to clean Markdown using Mozilla Readability for content extraction. It strips navigation, sidebars, footers, and ads — returning only the article content.
+
+## API Usage
+
+No API key required. No authentication. No rate limits for reasonable use.
+
+### Endpoints
+
+- GET https://md.succ.ai/{url} — convert URL to Markdown
+- GET https://md.succ.ai/?url={url} — query param format
+- GET https://md.succ.ai/health — health check
+
+### Example
+
+```
+curl https://md.succ.ai/https://example.com
+```
+
+### JSON Response (Accept: application/json)
+
+```json
+{
+  "title": "Example Domain",
+  "url": "https://example.com",
+  "content": "# Example Domain\n\nThis domain is for use in documentation...",
+  "tokens": 33,
+  "tier": "fetch",
+  "readability": true,
+  "time_ms": 245,
+  "excerpt": "This domain is for use in...",
+  "byline": "",
+  "siteName": ""
+}
+```
+
+### Response Headers
+
+- x-markdown-tokens: cl100k_base token count
+- x-conversion-tier: "fetch" or "browser"
+- x-conversion-time: conversion time in milliseconds
+- x-readability: whether Readability extraction succeeded
+
+## Two-Tier Pipeline
+
+1. **Tier 1 (fast)**: Plain HTTP fetch + Readability + Turndown (200-500ms for static pages)
+2. **Tier 2 (fallback)**: Playwright headless Chromium for SPAs and JS-heavy sites (3-15s)
+
+Automatic detection — no configuration needed.
+
+## Self-Hosting
+
+```bash
+git clone https://github.com/vinaes/md-succ-ai.git
+cd md-succ-ai
+docker compose up -d
+```
+
+Available at localhost:3100. Docker image includes Chromium.
+
+## Use Cases
+
+- AI agent web browsing (MCP tools, function calling)
+- RAG pipeline document ingestion
+- Content extraction for LLM context windows
+- Web research automation
+- Documentation scraping
+
+## Technology
+
+- Node.js 22, Hono framework
+- Mozilla Readability (content extraction)
+- Turndown (HTML to Markdown)
+- Playwright (headless Chromium for SPAs)
+- gpt-tokenizer (cl100k_base token counting)
+
+## Links
+
+- Website: https://md.succ.ai
+- GitHub: https://github.com/vinaes/md-succ-ai
+- Part of the succ ecosystem: https://succ.ai
+- License: FSL-1.1-Apache-2.0
+
+## Contact
+
+Vinaes Code Ltd
+https://succ.ai
