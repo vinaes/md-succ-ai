@@ -833,6 +833,12 @@ function pruneMarkdown(markdown, maxTokens) {
   const kept = scored.filter((s) => s.score > 0.15);
   let result = kept.map((s) => s.lines.join('\n')).join('\n');
 
+  // Safety: if pruning removed >80% of content, return original
+  // (page is likely link-heavy or all-content, pruning too aggressive)
+  if (result.length < markdown.length * 0.2) {
+    return markdown.trim();
+  }
+
   // Optional token budget truncation
   if (maxTokens && maxTokens > 0) {
     const tokens = countTokens(result);
