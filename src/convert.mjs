@@ -1301,7 +1301,11 @@ async function fetchWithBrowser(browserPool, url) {
   const page = await browserPool.newPage();
   try {
     await page.goto(url, { waitUntil: 'networkidle', timeout: 25000 });
-    await page.waitForTimeout(2000);
+    // Wait for meaningful body content instead of a fixed 2s delay
+    await page.waitForFunction(
+      () => (document.body?.innerText?.length ?? 0) > 200,
+      { timeout: 5000 },
+    ).catch(() => {});
     const html = await page.content();
     if (html.length > MAX_RESPONSE_SIZE) {
       throw new Error(`Page too large: ${(html.length / 1024 / 1024).toFixed(1)}MB`);
