@@ -531,8 +531,13 @@ function tryCleanedBody(html) {
  * (catches over-aggressive Readability stripping).
  */
 async function extractContent(html, url) {
-  // Compute raw text length once for ratio check
+  // Compute raw text length once for ratio check.
+  // Strip script/style first — their textContent inflates rawTextLen
+  // on SPA pages (CSS variables, JS bundles count as "text" otherwise).
   const { document: rawDoc } = parseHTML(html);
+  for (const tag of ['script', 'style', 'noscript']) {
+    for (const el of rawDoc.querySelectorAll(tag)) el.remove();
+  }
   const rawTextLen = rawDoc.body?.textContent?.trim().length || 0;
 
   const passes = [
@@ -620,12 +625,16 @@ function scoreMarkdown(markdown) {
   const isFrameworkPayload = FRAMEWORK_PAYLOAD_PATTERNS.some((p) => p.test(markdown));
   const frameworkPenalty = isFrameworkPayload ? 0.1 : 1;
 
+  // Thin content penalty: very short text is likely an OG snippet, SPA shell stub, or error page.
+  // Without this, 45-token OG extracts can score 0.81 (A) and prevent browser escalation.
+  const thinPenalty = textLen < 300 ? 0.4 : textLen < 500 ? 0.7 : 1;
+
   const score =
     (length * 0.15 +
     textDensity * 0.25 +
     structure * 0.2 +
     boilerplate * 0.2 +
-    linkDensity * 0.2) * challengePenalty * frameworkPenalty;
+    linkDensity * 0.2) * challengePenalty * frameworkPenalty * thinPenalty;
 
   const clamped = Math.round(Math.min(Math.max(score, 0), 1) * 100) / 100;
 
