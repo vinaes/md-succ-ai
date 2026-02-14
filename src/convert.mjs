@@ -135,6 +135,18 @@ const BOILERPLATE_PATTERNS = [
   'log in to', 'sign in to', 'create an account',
 ];
 
+// RSC / SPA framework payload markers — content is JS, not readable HTML
+const FRAMEWORK_PAYLOAD_PATTERNS = [
+  /self\.__next_f\s*=/, // Next.js RSC payload
+  /\$Sreact\.fragment/, // React Server Components
+  /I\[\d+,\[/, // RSC module references
+  /\\"parallelRouterKey\\"/, // Next.js App Router
+  /\\"templateStyles\\"/, // Next.js App Router
+  /__NUXT__/, // Nuxt.js
+  /__NEXT_DATA__/, // Next.js Pages Router
+  /window\.__remixContext/, // Remix
+];
+
 const JUNK_SELECTORS = [
   'script', 'style', 'noscript', 'link[rel="stylesheet"]',
   'nav', 'header', 'footer', 'aside',
@@ -578,12 +590,16 @@ function scoreMarkdown(markdown) {
   const errorHits = ERROR_PATTERNS.filter((p) => lower.includes(p)).length;
   const challengePenalty = errorHits > 0 ? 0.1 : 1;
 
+  // Framework payload penalty: RSC, Next.js, Nuxt etc. — content is JS framework data, not readable text
+  const isFrameworkPayload = FRAMEWORK_PAYLOAD_PATTERNS.some((p) => p.test(markdown));
+  const frameworkPenalty = isFrameworkPayload ? 0.1 : 1;
+
   const score =
     (length * 0.15 +
     textDensity * 0.25 +
     structure * 0.2 +
     boilerplate * 0.2 +
-    linkDensity * 0.2) * challengePenalty;
+    linkDensity * 0.2) * challengePenalty * frameworkPenalty;
 
   const clamped = Math.round(Math.min(Math.max(score, 0), 1) * 100) / 100;
 
