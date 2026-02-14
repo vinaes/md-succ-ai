@@ -18,6 +18,7 @@
     "dev": "node --watch src/server.mjs"
   },
   "dependencies": {
+    "@extractus/article-extractor": "^8.0.20",
     "@hono/node-server": "^1.13.0",
     "@mozilla/readability": "^0.5.0",
     "gpt-tokenizer": "^2.8.1",

@@ -2,6 +2,7 @@ import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import TurndownService from 'turndown';
 import { encode } from 'gpt-tokenizer';
+import { extractFromHtml } from '@extractus/article-extractor';
 import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolve4, resolve6 } from 'node:dns/promises';
@@ -172,6 +173,29 @@ function tryReadability(html, url) {
     siteName: article.siteName || '',
     method: 'readability',
   };
+}
+
+/**
+ * Pass 1.5: @extractus/article-extractor — different heuristics than Readability
+ */
+async function tryArticleExtractor(html, url) {
+  try {
+    const article = await extractFromHtml(html, url);
+    if (!article?.content) return null;
+    // Check text content length (strip tags) — same as Readability's isUsableContent
+    const { document: doc } = parseHTML(`<html><body>${article.content}</body></html>`);
+    if (!isUsableText(doc.body?.textContent)) return null;
+    return {
+      contentHtml: article.content,
+      title: article.title || '',
+      excerpt: article.description || '',
+      byline: article.author || '',
+      siteName: article.source || '',
+      method: 'article-extractor',
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -374,9 +398,10 @@ function tryCleanedBody(html) {
 /**
  * Multi-pass extraction: try methods from best to worst
  */
-function extractContent(html, url) {
+async function extractContent(html, url) {
   const passes = [
     () => tryReadability(html, url),
+    () => tryArticleExtractor(html, url),
     () => tryReadabilityCleaned(html, url),
     () => tryCssSelectors(html, url),
     () => trySchemaOrg(html),
@@ -387,7 +412,7 @@ function extractContent(html, url) {
 
   for (const pass of passes) {
     try {
-      const result = pass();
+      const result = await pass();
       if (result) return result;
     } catch {
       // pass failed, try next
@@ -560,8 +585,8 @@ function cleanMarkdown(markdown) {
 /**
  * Parse HTML with multi-pass extraction + Turndown + quality scoring
  */
-function htmlToMarkdown(html, url) {
-  const extracted = extractContent(html, url);
+async function htmlToMarkdown(html, url) {
+  const extracted = await extractContent(html, url);
 
   let markdown;
   if (extracted.prebuiltMarkdown) {
@@ -1100,20 +1125,21 @@ export async function convert(url, browserPool = null) {
   let result;
   if (!fetchFailed) {
     try {
-      result = htmlToMarkdown(html, url);
+      result = await htmlToMarkdown(html, url);
     } catch (e) {
       console.error(`[convert] htmlToMarkdown failed for ${url}: ${e.message}`);
     }
   }
 
   // Tier 2: Playwright fallback if fetch failed or extraction quality is low
+  const goodExtraction = result?.readability || result?.method === 'readability-cleaned' || result?.method === 'article-extractor';
   const needsBrowser = fetchFailed ||
-    (!result?.readability && result?.method !== 'readability-cleaned' && (result?.quality?.score ?? 0) < 0.6);
+    (!goodExtraction && (result?.quality?.score ?? 0) < 0.6);
   if (browserPool && needsBrowser) {
     try {
       tier = 'browser';
       html = await fetchWithBrowser(browserPool, url);
-      const browserResult = htmlToMarkdown(html, url);
+      const browserResult = await htmlToMarkdown(html, url);
       // Use browser result if it's better than fetch result
       if (!result || browserResult.quality.score > result.quality.score) {
         result = browserResult;
