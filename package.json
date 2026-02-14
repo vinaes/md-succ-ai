@@ -24,8 +24,11 @@
     "gpt-tokenizer": "^2.8.1",
     "hono": "^4.7.0",
     "linkedom": "^0.18.0",
+    "mammoth": "^1.11.0",
     "playwright": "^1.50.0",
-    "turndown": "^7.2.0"
+    "turndown": "^7.2.0",
+    "unpdf": "^1.4.0",
+    "xlsx": "^0.18.5"
   },
   "engines": {
     "node": ">=20"
