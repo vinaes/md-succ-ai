@@ -1606,6 +1606,8 @@ async function tryYouTube(url) {
     if (!segments?.length) return null;
 
     // Fetch video title via oEmbed (no API key needed)
+    // Safe: videoId is validated by YOUTUBE_REGEX ([a-zA-Z0-9_-]{11}),
+    // URL is hardcoded to youtube.com — no SSRF risk
     let title = `YouTube Video ${videoId}`;
     try {
       const oEmbed = await fetch(
@@ -1616,14 +1618,19 @@ async function tryYouTube(url) {
         const data = await oEmbed.json();
         if (data.title) title = data.title;
       }
-    } catch { /* use fallback title */ }
+    } catch (e) {
+      console.log(`[youtube] oEmbed failed for ${videoId}: ${e.message}`);
+    }
 
-    // Format transcript with timestamps
+    // Format transcript with timestamps (handles hours for long videos)
     const lines = segments.map((s) => {
-      const sec = Math.floor(s.offset / 1000);
-      const min = Math.floor(sec / 60);
-      const rem = sec % 60;
-      const ts = `${min}:${String(rem).padStart(2, '0')}`;
+      const totalSec = Math.floor(s.offset / 1000);
+      const hrs = Math.floor(totalSec / 3600);
+      const min = Math.floor((totalSec % 3600) / 60);
+      const sec = totalSec % 60;
+      const ts = hrs > 0
+        ? `${hrs}:${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`
+        : `${min}:${String(sec).padStart(2, '0')}`;
       return `[${ts}] ${s.text}`;
     });
 
@@ -1681,6 +1688,21 @@ SECURITY:
  */
 export async function extractSchema(html, url, schema) {
   if (!NANOGPT_API_KEY) throw new Error('LLM extraction requires NANOGPT_API_KEY');
+
+  // Validate schema is a proper object
+  if (!schema || typeof schema !== 'object' || Array.isArray(schema)) {
+    throw new Error('Schema must be a non-null object');
+  }
+
+  // Validate schema keys (prevent prompt injection via keys)
+  const keys = Object.keys(schema.properties || schema);
+  if (keys.length === 0) throw new Error('Schema must have at least one field');
+  if (keys.length > 50) throw new Error('Schema too large (max 50 fields)');
+  for (const key of keys) {
+    if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(key)) {
+      throw new Error(`Invalid schema key: ${key.slice(0, 30)}`);
+    }
+  }
 
   // Normalize simple schema {field: "type"} → JSON Schema
   let jsonSchema;
@@ -1741,6 +1763,7 @@ export async function extractSchema(html, url, schema) {
   const json = await res.json().catch(() => null);
   let output = json?.choices?.[0]?.message?.content?.trim();
   if (!output) throw new Error('LLM returned empty response');
+  if (output.length > 100_000) throw new Error('LLM output too large');
 
   // Strip markdown code fences if present
   if (output.startsWith('```')) {
