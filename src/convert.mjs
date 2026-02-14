@@ -491,6 +491,7 @@ function trackUsage(provider) {
  * Returns text/markdown format: "Title: ...\nURL Source: ...\nMarkdown Content:\n..."
  */
 async function tryExternalMarkdownNew(url) {
+  if (isBlockedUrl(url)) return null;
   const provider = 'markdown.new';
   const count = getMonthlyCount(provider);
   if (count >= MONTHLY_LIMIT) {
@@ -546,6 +547,7 @@ async function tryExternalMarkdownNew(url) {
  * External fallback: Jina Reader (LLM-based, ReaderLM-v2)
  */
 async function tryExternalJina(url) {
+  if (isBlockedUrl(url)) return null;
   const provider = 'jina';
   const count = getMonthlyCount(provider);
   if (count >= MONTHLY_LIMIT) {
@@ -591,10 +593,46 @@ async function tryExternalJina(url) {
   }
 }
 
+// ─── Security ─────────────────────────────────────────────────────────
+
+const MAX_RESPONSE_SIZE = 5 * 1024 * 1024; // 5MB
+
+/**
+ * Block private/internal IPs and non-HTTP protocols (SSRF protection)
+ */
+function isBlockedUrl(urlStr) {
+  try {
+    const u = new URL(urlStr);
+    const host = u.hostname.toLowerCase();
+
+    if (!['http:', 'https:'].includes(u.protocol)) return true;
+    if (host === 'localhost' || host === '[::1]' || host === '') return true;
+
+    // Block IPv6 (simplified — block all bracketed)
+    if (host.startsWith('[')) return true;
+
+    const parts = host.split('.').map(Number);
+    if (parts.length === 4 && parts.every((n) => n >= 0 && n <= 255)) {
+      if (parts[0] === 0) return true;                                        // 0.0.0.0/8
+      if (parts[0] === 10) return true;                                       // 10.0.0.0/8
+      if (parts[0] === 127) return true;                                      // 127.0.0.0/8
+      if (parts[0] === 169 && parts[1] === 254) return true;                  // 169.254.0.0/16
+      if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;  // 172.16.0.0/12
+      if (parts[0] === 192 && parts[1] === 168) return true;                  // 192.168.0.0/16
+    }
+
+    return false;
+  } catch {
+    return true;
+  }
+}
+
 /**
  * Fetch HTML via plain HTTP
  */
 async function fetchHTML(url) {
+  if (isBlockedUrl(url)) throw new Error('Blocked URL: private or internal address');
+
   const res = await fetch(url, {
     headers: {
       'User-Agent':
@@ -606,7 +644,18 @@ async function fetchHTML(url) {
     redirect: 'follow',
     signal: AbortSignal.timeout(15000),
   });
+
+  // Check content-length before reading body
+  const cl = parseInt(res.headers.get('content-length') || '0', 10);
+  if (cl > MAX_RESPONSE_SIZE) {
+    throw new Error(`Page too large: ${(cl / 1024 / 1024).toFixed(1)}MB`);
+  }
+
   const html = await res.text();
+  if (html.length > MAX_RESPONSE_SIZE) {
+    throw new Error(`Page too large: ${(html.length / 1024 / 1024).toFixed(1)}MB`);
+  }
+
   return { html, status: res.status };
 }
 
@@ -614,6 +663,8 @@ async function fetchHTML(url) {
  * Fetch HTML via Playwright headless browser
  */
 async function fetchWithBrowser(browserPool, url) {
+  if (isBlockedUrl(url)) throw new Error('Blocked URL: private or internal address');
+
   const page = await browserPool.newPage();
   try {
     await page.goto(url, { waitUntil: 'networkidle', timeout: 25000 });
