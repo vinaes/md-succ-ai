@@ -2,10 +2,16 @@
  * Multi-provider Browser-as-a-Service (BaaS) for Cloudflare Turnstile bypass.
  * Tries configured providers in order, skipping those without API keys or exhausted limits.
  * Returns raw HTML which feeds into the existing htmlToMarkdown pipeline.
+ *
+ * NOTE: All 3 providers require API keys in query params per their official API docs.
+ * Keys are never logged — only provider name and target URL appear in logs.
  */
 import { incrBaasUsage, getBaasUsage } from './redis.mjs';
 
 const enc = (s) => encodeURIComponent(s);
+
+/** Sanitize string for safe logging (prevent log injection via newlines) */
+const safeLog = (s) => String(s).replace(/[\n\r\x1b\x00-\x1f]/g, '').slice(0, 120);
 
 const PROVIDERS = [
   {
@@ -63,7 +69,7 @@ export async function fetchWithBaaS(url) {
 
     try {
       const apiUrl = provider.buildUrl(apiKey, url);
-      console.log(`[baas] trying ${provider.name} for ${url.slice(0, 80)}`);
+      console.log(`[baas] trying ${provider.name} for ${safeLog(url)}`);
 
       const res = await fetch(apiUrl, {
         signal: AbortSignal.timeout(45_000),
