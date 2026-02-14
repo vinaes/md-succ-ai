@@ -64,7 +64,7 @@ Post-processing:
               <div className="h-px bg-border" />
               <div className="flex justify-between gap-2">
                 <span className="text-muted-foreground shrink-0">x-conversion-tier</span>
-                <span className="text-foreground text-right">fetch | browser | llm | youtube</span>
+                <span className="text-foreground text-right">fetch | browser | llm | youtube | document:*</span>
               </div>
               <div className="h-px bg-border" />
               <div className="flex justify-between gap-2">
@@ -110,6 +110,11 @@ Post-processing:
               <div className="flex justify-between">
                 <span className="text-blue">GET</span>
                 <span className="text-muted-foreground">/health</span>
+              </div>
+              <div className="h-px bg-border" />
+              <div className="flex justify-between">
+                <span className="text-blue">GET</span>
+                <span className="text-muted-foreground">/</span>
               </div>
             </div>
 
