@@ -369,6 +369,10 @@ app.get('/*', async (c) => {
         json.fit_markdown = result.fit_markdown;
         json.fit_tokens = result.fit_tokens;
       }
+      // Include escalation trace when tiers were escalated
+      if (result.escalation?.length) {
+        json.escalation = result.escalation;
+      }
       return c.json(json);
     }
 
