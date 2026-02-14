@@ -43,22 +43,24 @@ const steps = [
   {
     number: "01",
     title: "Fetch any URL",
-    description: "Prepend md.succ.ai/ to any URL, or use the query param format. No API key, no auth, no setup.",
-    code: `# Markdown output (default)
+    description: "Prepend md.succ.ai/ to any URL. YouTube links return transcripts automatically. Add query params for citation links or fit mode.",
+    code: `# Basic conversion
 curl https://md.succ.ai/https://example.com
 
-# JSON output with metadata
-curl -H "Accept: application/json" \\
-  https://md.succ.ai/https://example.com
+# YouTube transcript
+curl https://md.succ.ai/https://youtube.com/watch?v=dQw4w9WgXcQ
 
-# Query param format
-curl https://md.succ.ai/?url=https://example.com`,
+# Citation-style links
+curl "https://md.succ.ai/?url=https://en.wikipedia.org/wiki/Markdown&links=citations"
+
+# LLM-optimized (pruned boilerplate)
+curl "https://md.succ.ai/?url=https://htmx.org/docs/&mode=fit"`,
     codeTitle: "terminal",
   },
   {
     number: "02",
     title: "Get clean Markdown",
-    description: "Readability extracts the article content, Turndown converts to Markdown. Navigation, ads, and sidebars are stripped.",
+    description: "9-pass extraction finds the content. Turndown converts to Markdown. Navigation, ads, and sidebars are stripped. Quality scored A-F.",
     code: `Title: Example Domain
 URL Source: https://example.com
 Description: This domain is for use in...
@@ -74,23 +76,23 @@ examples without needing permission.
   },
   {
     number: "03",
-    title: "Use the metadata",
-    description: "JSON responses include title, excerpt, token count, conversion tier, and timing. Response headers always include token count.",
-    code: `{
-  "title": "Example Domain",
-  "url": "https://example.com",
-  "content": "# Example Domain\\n\\n...",
-  "tokens": 33,
-  "tier": "fetch",
-  "readability": true,
-  "method": "readability",
-  "quality": { "score": 0.85, "grade": "A" },
-  "time_ms": 245,
-  "excerpt": "This domain is for use in...",
-  "byline": "",
-  "siteName": ""
-}`,
-    codeTitle: "response (application/json)",
+    title: "Extract structured data",
+    description: "POST a JSON schema to /extract. The LLM extracts matching fields from any page. Validated with Ajv.",
+    code: `curl -X POST https://md.succ.ai/extract \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "url": "https://example.com",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "heading": { "type": "string" }
+      }
+    }
+  }'
+
+# → { "title": "Example Domain", "heading": "Example Domain" }`,
+    codeTitle: "terminal",
   },
 ]
 
