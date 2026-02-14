@@ -1955,6 +1955,7 @@ export async function convert(url, browserPool = null, options = {}) {
   let fetchError = options.skipFetch ? 'skipped' : '';
   let httpErrorStatus = 0; // Track HTTP 4xx/5xx — don't retry with browser
   let result;
+  const escalation = []; // Track why each tier was triggered
 
   if (!options.skipFetch) try {
     const fetched = await fetchHTML(url);
@@ -2001,6 +2002,12 @@ export async function convert(url, browserPool = null, options = {}) {
   const needsBrowser = !cfPoisoned && !httpClientError && (fetchFailed || challengeTitle || options.forceBrowser ||
     (!goodExtraction && (result?.quality?.score ?? 0) < 0.6));
   if (browserPool && needsBrowser) {
+    // Log why browser was triggered
+    if (fetchFailed) escalation.push(`fetch failed (${fetchError})`);
+    else if (challengeTitle) escalation.push(`challenge page detected: "${result.title}"`);
+    else if (options.forceBrowser) escalation.push('forced browser retry');
+    else escalation.push(`low quality ${result?.quality?.score?.toFixed(2)} via ${result?.method || 'unknown'}`);
+
     try {
       tier = 'browser';
       html = await fetchWithBrowser(browserPool, url);
@@ -2032,6 +2039,7 @@ export async function convert(url, browserPool = null, options = {}) {
       }
     } catch (e) {
       console.error(`[convert] Browser failed for ${url}: ${e.message}`);
+      escalation.push(`browser failed: ${e.message}`);
       if (!result) {
         throw new Error(
           `All conversion methods failed. Fetch: ${fetchError || 'parse error'}. Browser: ${e.message}`,
@@ -2052,19 +2060,25 @@ export async function convert(url, browserPool = null, options = {}) {
 
   // Tier 2.5: LLM extraction when quality < B and we have HTML
   if (html && (result?.quality?.score ?? 0) < 0.6) {
+    escalation.push(`low quality ${result?.quality?.score?.toFixed(2)} via ${result?.method || 'unknown'} → trying LLM`);
     try {
       const llmResult = await tryLLMExtraction(html, url);
       if (llmResult && llmResult.quality.score > (result?.quality?.score ?? 0)) {
         result = llmResult;
         tier = 'llm';
+      } else {
+        escalation.push('LLM extraction did not improve quality');
       }
     } catch (e) {
+      escalation.push(`LLM extraction failed: ${e.message}`);
       console.error(`[convert] LLM extraction failed: ${e.message}`);
     }
   }
 
   // Tier 3: BaaS fallback for CF-protected sites
   if (hasBaaSProviders() && (cfPoisoned || (result?.quality?.score ?? 0) < 0.4) && !options.skipBaaS) {
+    if (cfPoisoned) escalation.push('CF challenge detected → trying BaaS');
+    else escalation.push(`quality still ${result?.quality?.score?.toFixed(2)} after LLM → trying BaaS`);
     try {
       const baasResult = await fetchWithBaaS(url);
       if (baasResult) {
@@ -2076,6 +2090,7 @@ export async function convert(url, browserPool = null, options = {}) {
         }
       }
     } catch (e) {
+      escalation.push(`BaaS failed: ${e.message}`);
       console.error(`[convert] BaaS failed: ${e.message}`);
     }
   }
@@ -2105,5 +2120,6 @@ export async function convert(url, browserPool = null, options = {}) {
     tier,
     totalMs,
     ...(cfPoisoned && { cfChallenge: true }),
+    ...(escalation.length > 0 && { escalation }),
   };
 }
