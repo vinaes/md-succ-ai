@@ -1304,7 +1304,7 @@ async function fetchWithBrowser(browserPool, url) {
     // Wait for meaningful body content instead of a fixed 2s delay
     await page.waitForFunction(
       () => (document.body?.innerText?.length ?? 0) > 200,
-      { timeout: 5000 },
+      { timeout: 2000 },
     ).catch(() => {});
     const html = await page.content();
     if (html.length > MAX_RESPONSE_SIZE) {
