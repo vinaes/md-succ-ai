@@ -103,8 +103,16 @@ const EXTRACT_RATE_LIMIT = 10;
 const EXTRACT_RATE_WINDOW = 60_000;
 
 app.post('/extract', async (c) => {
-  // Rate limiting per IP
-  const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+  // Body size guard (defense-in-depth — nginx should also limit)
+  const contentLength = parseInt(c.req.header('content-length') || '0', 10);
+  if (contentLength > 65536) {
+    return c.json({ error: 'Request body too large (max 64KB)' }, 413);
+  }
+
+  // Rate limiting per IP — prefer x-real-ip (set by nginx, not spoofable)
+  const ip = c.req.header('x-real-ip')
+    || c.req.header('x-forwarded-for')?.split(',').pop()?.trim()
+    || 'unknown';
   const now = Date.now();
   const limiter = extractLimiter.get(ip);
   if (limiter && now < limiter.resetAt) {
@@ -115,11 +123,13 @@ app.post('/extract', async (c) => {
   } else {
     extractLimiter.set(ip, { count: 1, resetAt: now + EXTRACT_RATE_WINDOW });
   }
-  // Cleanup old entries periodically
+  // Cleanup old entries periodically + hard cap against memory exhaustion
   if (extractLimiter.size > 1000) {
     for (const [k, v] of extractLimiter) {
       if (now > v.resetAt) extractLimiter.delete(k);
     }
+    // Nuclear option: if still too large after cleanup, clear all
+    if (extractLimiter.size > 5000) extractLimiter.clear();
   }
 
   let body;
@@ -190,7 +200,7 @@ app.get('/*', async (c) => {
   } else {
     // Re-attach target query params to the URL from path
     const qs = targetParams.toString();
-    if (qs) targetUrl += '?' + qs;
+    if (qs) targetUrl += (targetUrl.includes('?') ? '&' : '?') + qs;
   }
 
   // Decode URI components
@@ -242,7 +252,9 @@ app.get('/*', async (c) => {
 
   try {
     // Check cache first (anti-amplification)
-    const cacheKey = normalizeCacheKey(targetUrl);
+    // Include options in cache key — different mode/links/maxTokens = different result
+    const optionsSuffix = [apiMode, apiLinks, apiMaxTokens].filter(Boolean).join('|');
+    const cacheKey = normalizeCacheKey(targetUrl) + (optionsSuffix ? `|${optionsSuffix}` : '');
     const cached = getCached(cacheKey);
     const isCacheHit = !!cached;
     let result;
