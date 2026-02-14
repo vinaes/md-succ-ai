@@ -754,25 +754,80 @@ function convertToCitations(markdown) {
   const urlMap = new Map(); // url → ref number
   let counter = 0;
 
-  // Replace inline links (not images) with citation refs
-  const body = markdown.replace(/(?<!!)\[([^\]]+)\]\(([^)]+)\)/g, (match, text, url) => {
-    const trimmed = url.trim();
-    // Skip anchors and non-http
-    if (/^(#|mailto:|tel:|javascript:|data:)/i.test(trimmed)) return match;
-    if (!urlMap.has(trimmed)) {
-      urlMap.set(trimmed, ++counter);
+  // Replace inline links with citation refs using bracket-counting parser
+  // Handles nested brackets like [text [inner]](url) that regex can't
+  let body = '';
+  let i = 0;
+  while (i < markdown.length) {
+    // Skip images: ![...](...) — keep as-is
+    if (markdown[i] === '!' && markdown[i + 1] === '[') {
+      const closeBracket = findMatchingBracket(markdown, i + 1);
+      if (closeBracket !== -1 && markdown[closeBracket + 1] === '(') {
+        const closeParen = findMatchingParen(markdown, closeBracket + 1);
+        if (closeParen !== -1) {
+          body += markdown.slice(i, closeParen + 1);
+          i = closeParen + 1;
+          continue;
+        }
+      }
+      body += markdown[i++];
+      continue;
     }
-    return `${text} [${urlMap.get(trimmed)}]`;
-  });
+
+    // Match [text](url)
+    if (markdown[i] === '[') {
+      const closeBracket = findMatchingBracket(markdown, i);
+      if (closeBracket !== -1 && markdown[closeBracket + 1] === '(') {
+        const closeParen = findMatchingParen(markdown, closeBracket + 1);
+        if (closeParen !== -1) {
+          const text = markdown.slice(i + 1, closeBracket);
+          const url = markdown.slice(closeBracket + 2, closeParen).trim();
+          // Skip anchors and non-http
+          if (/^(#|mailto:|tel:|javascript:|data:)/i.test(url)) {
+            body += markdown.slice(i, closeParen + 1);
+          } else {
+            if (!urlMap.has(url)) urlMap.set(url, ++counter);
+            body += `${text} [${urlMap.get(url)}]`;
+          }
+          i = closeParen + 1;
+          continue;
+        }
+      }
+    }
+    body += markdown[i++];
+  }
 
   if (counter === 0) return markdown;
 
-  // Build references footer
   const refs = Array.from(urlMap.entries())
     .map(([url, num]) => `[${num}]: ${url}`)
     .join('\n');
 
   return `${body.trim()}\n\nReferences:\n${refs}`;
+}
+
+/** Find matching ] for [ at pos, respecting nesting */
+function findMatchingBracket(str, pos) {
+  if (str[pos] !== '[') return -1;
+  let depth = 1;
+  for (let i = pos + 1; i < str.length && i < pos + 1000; i++) {
+    if (str[i] === '\\') { i++; continue; }
+    if (str[i] === '[') depth++;
+    else if (str[i] === ']') { depth--; if (depth === 0) return i; }
+  }
+  return -1;
+}
+
+/** Find matching ) for ( at pos */
+function findMatchingParen(str, pos) {
+  if (str[pos] !== '(') return -1;
+  let depth = 1;
+  for (let i = pos + 1; i < str.length && i < pos + 2000; i++) {
+    if (str[i] === '\\') { i++; continue; }
+    if (str[i] === '(') depth++;
+    else if (str[i] === ')') { depth--; if (depth === 0) return i; }
+  }
+  return -1;
 }
 
 /**
@@ -1646,11 +1701,13 @@ async function fetchYouTubeTranscript(videoId) {
   const xml = await xmlRes.text();
 
   // Parse XML — supports both formats:
-  // Format 3 (ANDROID): <p t="1360" d="1680">text</p>
+  // Format 3 (ANDROID): <p t="1360" d="1680">text</p>  (attributes may be in any order)
   // Legacy: <text start="1.23" dur="4.56">text</text>
   const segments = [];
-  const pRegex = /<p\s+t="(\d+)"\s+d="(\d+)"[^>]*>([\s\S]*?)<\/p>/g;
-  const textRegex = /<text\s+start="([^"]*)"(?:\s+dur="([^"]*)")?\s*>([\s\S]*?)<\/text>/g;
+  // Flexible: match <p> with t and d attributes in any order via lookahead
+  const pRegex = /<p\s+(?=[^>]*\bt="(\d+)")(?=[^>]*\bd="(\d+)")[^>]*>([\s\S]*?)<\/p>/g;
+  // Legacy text format — only need start time (dur is unused)
+  const textRegex = /<text\s+(?=[^>]*\bstart="([^"]*)")[^>]*>([\s\S]*?)<\/text>/g;
 
   function decodeEntities(str) {
     return str
@@ -1675,7 +1732,7 @@ async function fetchYouTubeTranscript(videoId) {
   if (!segments.length) {
     while ((m = textRegex.exec(xml)) !== null) {
       const startSec = parseFloat(m[1]) || 0;
-      const text = decodeEntities(m[3]);
+      const text = decodeEntities(m[2]);
       if (text) segments.push({ offset: Math.round(startSec * 1000), text });
     }
   }
