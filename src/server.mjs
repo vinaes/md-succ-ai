@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { cors } from 'hono/cors';
-import { convert, fetchHTML, extractSchema } from './convert.mjs';
+import { convert, extractSchema } from './convert.mjs';
 import { BrowserPool } from './browser-pool.mjs';
 
 const app = new Hono();
@@ -159,11 +159,11 @@ app.post('/extract', async (c) => {
 
   try {
     console.log(`[extract] ${safeLog(targetUrl)}`);
-    const fetched = await fetchHTML(targetUrl);
-    if (fetched.buffer) {
-      return c.json({ error: 'Schema extraction only works with HTML pages' }, 415);
-    }
-    const result = await extractSchema(fetched.html, targetUrl, schema);
+    // Use full conversion pipeline (fetch → 9-pass → Playwright fallback → LLM)
+    // to get clean Markdown, then extract structured data from it
+    const pool = ENABLE_BROWSER ? browserPool : null;
+    const converted = await convert(targetUrl, pool);
+    const result = await extractSchema(converted.markdown, targetUrl, schema);
     return c.json(result);
   } catch (err) {
     console.error(`[extract] ${safeLog(targetUrl)} — ${err.message}`);
