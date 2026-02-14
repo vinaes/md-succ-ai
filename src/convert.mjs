@@ -617,26 +617,30 @@ function cleanMarkdown(markdown) {
   return markdown
     // Remove empty markdown links: [](url) — no visible text, just noise
     .replace(/\[]\([^)]*\)/g, '')
-    // Remove Wikipedia-style inline footnote/cite references (all variants):
-    // [\[1\]](#cite_note-...), [\[note 1\]](#cite_note-...), [^](#cite_ref-...)
-    // [_**a**_](#cite_ref-...), [****](#cite_ref-...), [1](#cite_note-...)
-    .replace(/\[[^\]]*\]\([^)]*#cite[_a-z0-9-]*\)/g, '')
+    // Remove all markdown links pointing to #cite_ anchors (Wikipedia footnotes/back-refs).
+    // Handles nested brackets like [\[1\]], [_**a**_], [\[note 1\]], [^], etc.
+    // Strategy: match the URL part (#cite...) and consume the preceding [...]
+    .replace(/\[(?:[^\[\]]|\[(?:[^\[\]]|\[[^\]]*\])*\])*\]\(#cite[^)]*\)/g, '')
+    // Fallback: any remaining short [...](#cite_...) patterns
+    .replace(/\[.{0,40}?\]\(#cite[^)]*\)/g, '')
     // Remove Wikipedia "edit" section links: [edit](...)
     .replace(/\[edit\]\([^)]*\)/gi, '')
-    // Remove Wikipedia "[better source needed]", "[citation needed]" inline tags
-    .replace(/\[\s*_?\[?(?:citation needed|better source needed|clarification needed)\]?_?\s*\]/gi, '')
+    // Remove Wikipedia "[citation needed]" and similar inline editorial tags
+    // Handles: \[_[citation needed](url)_\], [citation needed], [_citation needed_], etc.
+    .replace(/\\?\[_*\[?(?:citation needed|better source needed|clarification needed)[^\]]*\]?\([^)]*\)_*\\?\]/gi, '')
+    .replace(/\[_?\[?(?:citation needed|better source needed|clarification needed)\]?_?\]/gi, '')
     // Remove Wikipedia References/Notes/Citations/See also sections and everything after
     .replace(/\n#{1,3}\s*(?:References|Notes|Citations|Footnotes|Bibliography|External links|See also)\s*\n[\s\S]*$/i, '\n')
-    // Remove trailing numbered reference lists (Wikipedia-style: "1. **** ..." citing sources)
-    .replace(/\n(?:\d+\.\s+\*{4}\s+.+\n?){3,}[\s\S]*$/g, '\n')
+    // Remove trailing numbered reference lists (Wikipedia-style: "1. ****" citing sources)
+    .replace(/\n1\.\s+(?:\*{4}|\*{2}\[?\^)[\s\S]*$/g, '\n')
     // Collapse 3+ consecutive blank lines → 2
     .replace(/\n{3,}/g, '\n\n')
     // Remove lines with only whitespace
     .replace(/^\s+$/gm, '')
     // Trim trailing whitespace on each line
     .replace(/[ \t]+$/gm, '')
-    // Remove orphaned markdown fragments (bare brackets, empty bracket pairs on their own line)
-    .replace(/^\s*\[\s*\]\s*$/gm, '')
+    // Remove orphaned markdown fragments (bare brackets, empty bracket pairs, escaped bracket pairs)
+    .replace(/^\s*\\?\[\s*\\?\]\s*$/gm, '')
     .replace(/^\s*[\[\]]\s*$/gm, '')
     // Collapse resulting multiple blank lines again
     .replace(/\n{3,}/g, '\n\n')
