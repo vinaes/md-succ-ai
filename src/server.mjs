@@ -153,6 +153,9 @@ app.get('/*', async (c) => {
 
     if (cached) {
       result = cached;
+      // LRU: move to end so frequently accessed entries survive eviction
+      cache.delete(cacheKey);
+      cache.set(cacheKey, { result: cached, ts: Date.now() });
       console.log(`[hit] ${safeLog(targetUrl)} ${result.tokens}tok`);
     } else {
       console.log(`[req] ${safeLog(targetUrl)}`);
