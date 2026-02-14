@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
+
+/** Short SHA-256 hash for cache keys — collision-resistant, no poisoning */
+const hashKey = (s) => createHash('sha256').update(s).digest('hex').slice(0, 32);
 import { cors } from 'hono/cors';
 import { convert, extractSchema } from './convert.mjs';
 import { BrowserPool } from './browser-pool.mjs';
@@ -176,8 +179,8 @@ app.post('/extract', async (c) => {
 
   try {
     // Check extract cache (URL + schema hash → LLM result, 1hr TTL)
-    const schemaHash = createHash('sha256').update(JSON.stringify(schema)).digest('hex').slice(0, 12);
-    const extractCacheKey = `extract:${normalizeCacheKey(targetUrl)}:${schemaHash}`;
+    const schemaHash = hashKey(JSON.stringify(schema));
+    const extractCacheKey = `extract:${hashKey(targetUrl)}:${schemaHash}`;
     const cached = await getCache(extractCacheKey);
     if (cached) {
       console.log(`[extract] cache hit ${safeLog(targetUrl)}`);
@@ -306,7 +309,7 @@ app.get('/*', async (c) => {
     // Check cache first (anti-amplification)
     // Include options in cache key — different mode/links/maxTokens = different result
     const optionsSuffix = [apiMode, apiLinks, apiMaxTokens].filter(Boolean).join('|');
-    const cacheKey = `cache:${normalizeCacheKey(targetUrl)}${optionsSuffix ? `|${optionsSuffix}` : ''}`;
+    const cacheKey = `cache:${hashKey(targetUrl + '|' + optionsSuffix)}`;
     const hit = await getCachedResult(cacheKey);
     const isCacheHit = !!hit;
     let result;
