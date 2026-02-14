@@ -70,7 +70,8 @@ app.get('/*', async (c) => {
     console.log(`[req] ${targetUrl}`);
     const pool = ENABLE_BROWSER ? browserPool : null;
     const result = await convert(targetUrl, pool);
-    console.log(`[ok]  ${result.tier} ${result.tokens}tok ${result.totalMs}ms`);
+    const q = result.quality || { score: 0, grade: 'F' };
+    console.log(`[ok]  ${result.tier} ${result.tokens}tok ${result.totalMs}ms ${q.grade}(${q.score}) ${result.method || 'unknown'}`);
 
     // Response format based on Accept header
     const accept = c.req.header('accept') || '';
@@ -80,6 +81,9 @@ app.get('/*', async (c) => {
     c.header('x-conversion-tier', result.tier);
     c.header('x-conversion-time', String(result.totalMs));
     c.header('x-readability', result.readability ? 'true' : 'false');
+    c.header('x-extraction-method', result.method || 'unknown');
+    c.header('x-quality-score', String(q.score));
+    c.header('x-quality-grade', q.grade);
     c.header('vary', 'accept');
     c.header('cache-control', 'public, max-age=300');
 
@@ -95,6 +99,8 @@ app.get('/*', async (c) => {
         tokens: result.tokens,
         tier: result.tier,
         readability: result.readability,
+        method: result.method || 'unknown',
+        quality: q,
         time_ms: result.totalMs,
       });
     }
