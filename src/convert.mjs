@@ -36,11 +36,23 @@ turndown.addRule('removeSvg', {
 });
 
 // Remove image tags by default (configurable via ?images=true)
+// Also strip avatar/badge/icon images that add noise
 turndown.addRule('removeImages', {
   filter: 'img',
   replacement: (content, node) => {
     const alt = node.getAttribute('alt') || '';
     const src = node.getAttribute('src') || '';
+    const cls = node.getAttribute('class') || '';
+
+    // Skip avatar/badge/icon images — they're noise in markdown
+    const noisePattern = /avatar|gravatar|badge|icon|logo|emoji|spinner|loading|pixel|tracking|spacer/i;
+    if (noisePattern.test(alt) || noisePattern.test(src) || noisePattern.test(cls)) return '';
+
+    // Skip tiny images (1x1 tracking pixels, badges)
+    const w = parseInt(node.getAttribute('width') || '0', 10);
+    const h = parseInt(node.getAttribute('height') || '0', 10);
+    if ((w > 0 && w <= 24) || (h > 0 && h <= 24)) return '';
+
     if (alt && alt.length > 2 && !alt.startsWith('Image')) {
       return `![${alt}](${src})`;
     }
@@ -572,10 +584,46 @@ function normalizeSpacing(document) {
 }
 
 /**
+ * Resolve relative URLs in markdown to absolute using the source page URL.
+ */
+function resolveUrls(markdown, baseUrl) {
+  if (!baseUrl) return markdown;
+  let base;
+  try {
+    base = new URL(baseUrl);
+  } catch {
+    return markdown;
+  }
+  // Match markdown links [text](url) and images ![alt](url)
+  return markdown.replace(/(!?\[[^\]]*\])\(([^)]+)\)/g, (match, prefix, href) => {
+    const trimmed = href.trim();
+    // Skip data URIs, anchors, mailto, tel, javascript
+    if (/^(data:|#|mailto:|tel:|javascript:)/i.test(trimmed)) return match;
+    // Skip already-absolute URLs
+    if (/^https?:\/\//i.test(trimmed)) return match;
+    try {
+      const resolved = new URL(trimmed, base).href;
+      return `${prefix}(${resolved})`;
+    } catch {
+      return match;
+    }
+  });
+}
+
+/**
  * Clean up common markdown artifacts after Turndown conversion.
  */
 function cleanMarkdown(markdown) {
   return markdown
+    // Remove empty markdown links: [](url) — no visible text, just noise
+    .replace(/\[]\([^)]*\)/g, '')
+    // Remove Wikipedia-style inline footnote references: [\[1\]], [\[2\]], [^], [1], etc.
+    .replace(/\[\\?\[?\d+\\?\]?\]\([^)]*#cite[^)]*\)/g, '')
+    .replace(/\[\^[^\]]*\]\([^)]*#cite[^)]*\)/g, '')
+    // Remove Wikipedia "edit" section links
+    .replace(/\[edit\]\([^)]*\)/gi, '')
+    // Remove Wikipedia References/Notes/Citations section and everything after it
+    .replace(/\n##?\s*(?:References|Notes|Citations|Footnotes|Bibliography|External links)\s*\n[\s\S]*$/i, '\n')
     // Collapse 3+ consecutive blank lines → 2
     .replace(/\n{3,}/g, '\n\n')
     // Remove lines with only whitespace
@@ -605,6 +653,9 @@ async function htmlToMarkdown(html, url) {
     const normalizedHtml = document.body?.innerHTML || extracted.contentHtml;
     markdown = cleanMarkdown(turndown.turndown(normalizedHtml));
   }
+
+  // Resolve relative URLs to absolute using source page URL
+  markdown = resolveUrls(markdown, url);
 
   const tokens = countTokens(markdown);
   const quality = scoreMarkdown(markdown);
