@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+import { chromium } from 'patchright';
 
 const MAX_CONCURRENT = 3;
 
