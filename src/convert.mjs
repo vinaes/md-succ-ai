@@ -3,6 +3,9 @@ import { parseHTML } from 'linkedom';
 import TurndownService from 'turndown';
 import { encode } from 'gpt-tokenizer';
 import { extractFromHtml } from '@extractus/article-extractor';
+import { extractText as extractPdfText } from 'unpdf';
+import mammoth from 'mammoth';
+import * as XLSX from 'xlsx';
 import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolve4, resolve6 } from 'node:dns/promises';
@@ -885,6 +888,190 @@ async function tryLLMExtraction(html, url) {
   }
 }
 
+// ─── Document format support ──────────────────────────────────────────
+
+const DOCUMENT_FORMATS = {
+  'application/pdf': 'pdf',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.ms-excel': 'xlsx',
+  'text/csv': 'csv',
+};
+
+/**
+ * Detect document format by URL extension (fallback for application/octet-stream)
+ */
+function detectFormatByExtension(url) {
+  try {
+    const pathname = new URL(url).pathname.toLowerCase();
+    if (pathname.endsWith('.pdf')) return 'pdf';
+    if (pathname.endsWith('.docx')) return 'docx';
+    if (pathname.endsWith('.xlsx') || pathname.endsWith('.xls')) return 'xlsx';
+    if (pathname.endsWith('.csv')) return 'csv';
+  } catch { /* ignore */ }
+  return null;
+}
+
+const MAX_SHEET_ROWS = 1000;
+
+/**
+ * Convert PDF buffer to markdown
+ */
+async function pdfToMarkdown(buffer) {
+  const pdfPromise = extractPdfText(new Uint8Array(buffer));
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('PDF extraction timed out')), 30000),
+  );
+  const { text, totalPages } = await Promise.race([pdfPromise, timeout]);
+  const trimmed = text?.trim();
+  if (!trimmed || trimmed.length < 20) {
+    throw new Error('PDF contains no extractable text (possibly scanned/image-based)');
+  }
+
+  const markdown = `**Pages:** ${totalPages}\n\n---\n\n${trimmed}`;
+  const tokens = countTokens(markdown);
+  const quality = scoreMarkdown(markdown);
+
+  return {
+    title: 'PDF Document',
+    markdown,
+    tokens,
+    readability: false,
+    excerpt: '',
+    byline: '',
+    siteName: '',
+    htmlLength: buffer.length,
+    method: 'pdf',
+    quality,
+  };
+}
+
+/**
+ * Convert DOCX buffer to markdown via mammoth → turndown
+ */
+async function docxToMarkdown(buffer) {
+  const result = await mammoth.convertToHtml({ buffer });
+  const html = result.value || '';
+  if (html.length < 50) {
+    throw new Error('DOCX contains no extractable content');
+  }
+
+  const { document } = parseHTML(`<html><body>${html}</body></html>`);
+  normalizeSpacing(document);
+  const markdown = cleanMarkdown(turndown.turndown(document.body.innerHTML));
+
+  // Extract title from first heading
+  const titleMatch = markdown.match(/^#\s+(.+)$/m);
+  const title = titleMatch?.[1] || 'Document';
+
+  const tokens = countTokens(markdown);
+  const quality = scoreMarkdown(markdown);
+
+  return {
+    title,
+    markdown,
+    tokens,
+    readability: false,
+    excerpt: '',
+    byline: '',
+    siteName: '',
+    htmlLength: buffer.length,
+    method: 'docx',
+    quality,
+  };
+}
+
+/**
+ * Convert XLSX/XLS/CSV buffer to markdown tables
+ */
+function spreadsheetToMarkdown(buffer, format) {
+  const opts = {
+    type: 'buffer',
+    sheetRows: MAX_SHEET_ROWS + 1, // limit parsing at source to prevent memory bombs
+    ...(format === 'csv' ? { raw: true } : {}),
+  };
+  const workbook = XLSX.read(buffer, opts);
+  const parts = [];
+
+  // Sanitize cell value — strip markdown/HTML injection
+  const sanitizeCell = (val) =>
+    String(val ?? '')
+      .replace(/\|/g, '\\|')
+      .replace(/[<>]/g, '')
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1'); // strip markdown links
+
+  for (const name of workbook.SheetNames) {
+    const sheet = workbook.Sheets[name];
+    const data = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+    if (!data.length) continue;
+
+    if (workbook.SheetNames.length > 1) {
+      // Sanitize sheet name — strip markdown/HTML special chars
+      const safeName = name.replace(/[<>\[\]()#*`_~|\\]/g, '').trim() || 'Sheet';
+      parts.push(`## ${safeName}`);
+    }
+
+    // Build markdown table
+    const headers = (data[0] || []).map((h) => sanitizeCell(h));
+    if (!headers.length) continue;
+
+    parts.push('| ' + headers.join(' | ') + ' |');
+    parts.push('| ' + headers.map(() => '---').join(' | ') + ' |');
+
+    const rowCount = Math.min(data.length, MAX_SHEET_ROWS + 1);
+    for (let i = 1; i < rowCount; i++) {
+      const row = (data[i] || []).map((c) => sanitizeCell(c));
+      // Pad row to match header length
+      while (row.length < headers.length) row.push('');
+      parts.push('| ' + row.join(' | ') + ' |');
+    }
+
+    if (data.length > MAX_SHEET_ROWS + 1) {
+      parts.push(`\n*... truncated at ${MAX_SHEET_ROWS} rows*`);
+    }
+    parts.push('');
+  }
+
+  const markdown = parts.join('\n').trim();
+  if (!markdown || markdown.length < 10) {
+    throw new Error('Spreadsheet contains no data');
+  }
+
+  const tokens = countTokens(markdown);
+  const quality = scoreMarkdown(markdown);
+  const title = workbook.SheetNames[0] || 'Spreadsheet';
+
+  return {
+    title,
+    markdown,
+    tokens,
+    readability: false,
+    excerpt: '',
+    byline: '',
+    siteName: '',
+    htmlLength: buffer.length,
+    method: format === 'csv' ? 'csv' : 'xlsx',
+    quality,
+  };
+}
+
+/**
+ * Route document buffer to appropriate converter
+ */
+async function convertDocument(buffer, format) {
+  switch (format) {
+    case 'pdf':
+      return pdfToMarkdown(buffer);
+    case 'docx':
+      return docxToMarkdown(buffer);
+    case 'xlsx':
+    case 'csv':
+      return spreadsheetToMarkdown(buffer, format);
+    default:
+      throw new Error(`Unsupported document format: ${format}`);
+  }
+}
+
 // ─── Security ─────────────────────────────────────────────────────────
 
 const MAX_RESPONSE_SIZE = 5 * 1024 * 1024; // 5MB
@@ -1049,8 +1236,31 @@ async function fetchHTML(url) {
       continue;
     }
 
-    // Check content-type — reject binary files (mp3, pdf, zip, images, etc.)
+    // Check content-type for document formats vs unsupported binary
     const contentType = (res.headers.get('content-type') || '').toLowerCase();
+    const mimeType = contentType.split(';')[0].trim();
+
+    // Supported document formats — download as buffer
+    const docFormat = DOCUMENT_FORMATS[mimeType]
+      || (mimeType === 'application/octet-stream' ? detectFormatByExtension(currentUrl) : null);
+
+    if (docFormat) {
+      const cl = parseInt(res.headers.get('content-length') || '0', 10);
+      if (cl > MAX_RESPONSE_SIZE) {
+        res.body?.cancel?.();
+        throw new Error(`Document too large: ${(cl / 1024 / 1024).toFixed(1)}MB`);
+      }
+      const buffer = Buffer.from(await res.arrayBuffer());
+      if (!buffer.length) {
+        throw new Error('Document is empty');
+      }
+      if (buffer.length > MAX_RESPONSE_SIZE) {
+        throw new Error(`Document too large: ${(buffer.length / 1024 / 1024).toFixed(1)}MB`);
+      }
+      return { buffer, format: docFormat, status: res.status };
+    }
+
+    // Reject unsupported binary (mp3, zip, images, etc.)
     if (contentType && !contentType.includes('text/') &&
         !contentType.includes('application/xhtml') &&
         !contentType.includes('application/xml') &&
@@ -1113,16 +1323,31 @@ export async function convert(url, browserPool = null) {
   let html;
   let fetchFailed = false;
   let fetchError = '';
+  let result;
+
   try {
-    const { html: fetchedHtml } = await fetchHTML(url);
-    html = fetchedHtml;
+    const fetched = await fetchHTML(url);
+
+    // Document format path (PDF, DOCX, XLSX, CSV) — convert and return early
+    if (fetched.buffer) {
+      try {
+        result = await convertDocument(fetched.buffer, fetched.format);
+        tier = `document:${fetched.format}`;
+        const totalMs = Math.round(performance.now() - t0);
+        console.log(`[doc] ${fetched.format} ${result.tokens}tok ${totalMs}ms ${result.quality.grade}(${result.quality.score})`);
+        return { ...result, url, tier, totalMs };
+      } catch (e) {
+        throw new Error(`Document conversion failed: ${e.message}`);
+      }
+    }
+
+    html = fetched.html;
   } catch (e) {
     fetchFailed = true;
     fetchError = e.cause?.message || e.cause?.code || e.message;
     console.error(`[convert] fetch error for ${url}:`, fetchError, e.cause);
   }
 
-  let result;
   if (!fetchFailed) {
     try {
       result = await htmlToMarkdown(html, url);
