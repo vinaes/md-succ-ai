@@ -135,16 +135,42 @@ const BOILERPLATE_PATTERNS = [
   'log in to', 'sign in to', 'create an account',
 ];
 
-// RSC / SPA framework payload markers — content is JS, not readable HTML
+// SPA / framework payload markers — content is JS framework data, not readable text.
+// Tested against markdown output (raw JS/RSC leaks through as text when extraction fails).
 const FRAMEWORK_PAYLOAD_PATTERNS = [
-  /self\.__next_f\s*=/, // Next.js RSC payload
-  /\$Sreact\.fragment/, // React Server Components
-  /I\[\d+,\[/, // RSC module references
-  /\\"parallelRouterKey\\"/, // Next.js App Router
-  /\\"templateStyles\\"/, // Next.js App Router
-  /__NUXT__/, // Nuxt.js
-  /__NEXT_DATA__/, // Next.js Pages Router
-  /window\.__remixContext/, // Remix
+  // Next.js
+  /self\.__next_f\s*=/, // RSC streaming payload
+  /\$Sreact\.fragment/, // React Server Components serialized
+  /\\"parallelRouterKey\\"/, // App Router internals
+  /__NEXT_DATA__/, // Pages Router JSON blob
+  /_next\/static\/chunks\//, // Next.js chunk URLs (multiple = SPA shell)
+  // Nuxt
+  /__NUXT__/, // Nuxt 2 hydration data
+  /__nuxt/, // Nuxt 3 mount point
+  // Remix
+  /window\.__remixContext/, // Remix hydration
+  /window\.__remixRouteModules/, // Remix route modules
+  // SvelteKit
+  /__sveltekit_/, // SvelteKit globals
+  // Angular
+  /ng-version=/, // Angular version attribute
+  /<app-root[^>]*><\/app-root>/, // Empty Angular mount
+  // Gatsby
+  /___gatsby/, // Gatsby mount div
+  /window\.___webpackCompilationHash/, // Gatsby webpack hash
+  // Qwik
+  /q:container/, // Qwik container attribute
+  /q:version/, // Qwik version
+  // Ember
+  /ember-application/, // Ember app class
+  /window\.Ember/, // Ember global
+  // Astro (client-only)
+  /astro-island/, // Astro island components
+  // Generic SPA shells
+  /webpackChunk[A-Za-z]/, // Webpack chunked app
+  /window\.__INITIAL_STATE__/, // Vuex / generic SSR state
+  /window\.__APP_DATA__/, // Generic app hydration
+  /\bcreateSingletonRouter\b/, // Next.js router singleton
 ];
 
 const JUNK_SELECTORS = [
