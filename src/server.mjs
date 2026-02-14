@@ -1,8 +1,10 @@
+import { createHash } from 'node:crypto';
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { cors } from 'hono/cors';
 import { convert, extractSchema } from './convert.mjs';
 import { BrowserPool } from './browser-pool.mjs';
+import { initRedis, shutdownRedis, getRedis, checkRateLimit, getCache, setCache } from './redis.mjs';
 
 const app = new Hono();
 const browserPool = new BrowserPool();
@@ -10,27 +12,46 @@ const browserPool = new BrowserPool();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const ENABLE_BROWSER = process.env.ENABLE_BROWSER !== 'false';
 
-// ─── In-memory result cache (anti-amplification) ──────────────────────
-const cache = new Map();
+// ─── In-memory result cache (fallback when Redis is down) ───────────
+const memCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;  // 5 minutes
-const CACHE_MAX = 200;             // ~200 entries, realistic ~10-50MB
+const CACHE_MAX = 200;
 
-function getCached(url) {
-  const entry = cache.get(url);
+function getMemCached(key) {
+  const entry = memCache.get(key);
   if (!entry) return null;
   if (Date.now() - entry.ts > CACHE_TTL) {
-    cache.delete(url);
+    memCache.delete(key);
     return null;
   }
   return entry.result;
 }
 
-function setCache(url, result) {
-  if (cache.size >= CACHE_MAX) {
-    const oldest = cache.keys().next().value;
-    cache.delete(oldest);
+function setMemCache(key, result) {
+  if (memCache.size >= CACHE_MAX) {
+    const oldest = memCache.keys().next().value;
+    memCache.delete(oldest);
   }
-  cache.set(url, { result, ts: Date.now() });
+  memCache.set(key, { result, ts: Date.now() });
+}
+
+// ─── Dual-layer cache: Redis → in-memory fallback ──────────────────
+async function getCachedResult(cacheKey) {
+  // Try Redis first
+  const redisResult = await getCache(cacheKey);
+  if (redisResult) return { result: redisResult, source: 'redis' };
+
+  // Fallback to in-memory
+  const memResult = getMemCached(cacheKey);
+  if (memResult) return { result: memResult, source: 'memory' };
+
+  return null;
+}
+
+async function setCachedResult(cacheKey, result, ttlSec = 300) {
+  // Write to both layers
+  await setCache(cacheKey, result, ttlSec);
+  setMemCache(cacheKey, result);
 }
 
 /**
@@ -93,8 +114,11 @@ app.use('*', async (c, next) => {
   c.header('permissions-policy', 'camera=(), microphone=(), geolocation=()');
 });
 
-// Health check (minimal — no config/uptime leaks)
-app.get('/health', (c) => c.json({ status: 'ok' }));
+// Health check
+app.get('/health', (c) => {
+  const redisOk = getRedis()?.status === 'ready';
+  return c.json({ status: 'ok', redis: redisOk });
+});
 
 // Check if LLM extract returned mostly empty data (arrays empty, values null)
 function isExtractEmpty(result) {
@@ -109,9 +133,7 @@ function isExtractEmpty(result) {
 
 // LLM schema extraction: POST /extract
 // Rate-limited: max 10 requests per minute per IP (LLM calls are expensive)
-const extractLimiter = new Map(); // ip → {count, resetAt}
 const EXTRACT_RATE_LIMIT = 10;
-const EXTRACT_RATE_WINDOW = 60_000;
 
 app.post('/extract', async (c) => {
   // Body size guard (defense-in-depth — nginx should also limit)
@@ -121,30 +143,14 @@ app.post('/extract', async (c) => {
   }
 
   // Rate limiting per IP — Cloudflare → nginx → forwarded-for fallback
-  // CF-Connecting-IP: set by Cloudflare, most reliable behind CF proxy
-  // x-real-ip: set by nginx ($remote_addr), reliable behind nginx only
-  // x-forwarded-for last entry: last hop added by trusted proxy
   const ip = c.req.header('cf-connecting-ip')
     || c.req.header('x-real-ip')
     || c.req.header('x-forwarded-for')?.split(',').pop()?.trim()
     || 'unknown';
-  const now = Date.now();
-  const limiter = extractLimiter.get(ip);
-  if (limiter && now < limiter.resetAt) {
-    if (limiter.count >= EXTRACT_RATE_LIMIT) {
-      return c.json({ error: 'Rate limited: max 10 extract requests per minute' }, 429);
-    }
-    limiter.count++;
-  } else {
-    extractLimiter.set(ip, { count: 1, resetAt: now + EXTRACT_RATE_WINDOW });
-  }
-  // Cleanup old entries periodically + hard cap against memory exhaustion
-  if (extractLimiter.size > 1000) {
-    for (const [k, v] of extractLimiter) {
-      if (now > v.resetAt) extractLimiter.delete(k);
-    }
-    // Nuclear option: if still too large after cleanup, clear all
-    if (extractLimiter.size > 5000) extractLimiter.clear();
+
+  const rl = await checkRateLimit(`rl:${ip}`, EXTRACT_RATE_LIMIT, 60);
+  if (!rl.allowed) {
+    return c.json({ error: 'Rate limited: max 10 extract requests per minute' }, 429);
   }
 
   let body;
@@ -169,6 +175,15 @@ app.post('/extract', async (c) => {
   }
 
   try {
+    // Check extract cache (URL + schema hash → LLM result, 1hr TTL)
+    const schemaHash = createHash('sha256').update(JSON.stringify(schema)).digest('hex').slice(0, 12);
+    const extractCacheKey = `extract:${normalizeCacheKey(targetUrl)}:${schemaHash}`;
+    const cached = await getCache(extractCacheKey);
+    if (cached) {
+      console.log(`[extract] cache hit ${safeLog(targetUrl)}`);
+      return c.json(cached);
+    }
+
     console.log(`[extract] ${safeLog(targetUrl)}`);
     const pool = ENABLE_BROWSER ? browserPool : null;
     const converted = await convert(targetUrl, pool);
@@ -190,6 +205,11 @@ app.post('/extract', async (c) => {
       if (browserConverted.markdown.length > converted.markdown.length) {
         result = await extractSchema(browserConverted.markdown, targetUrl, schema);
       }
+    }
+
+    // Cache successful non-empty results for 1 hour
+    if (!isExtractEmpty(result)) {
+      await setCache(extractCacheKey, result, 3600);
     }
 
     return c.json(result);
@@ -260,7 +280,7 @@ app.get('/*', async (c) => {
         },
         headers: {
           'x-markdown-tokens': 'Token count in response',
-          'x-conversion-tier': 'fetch | browser | youtube',
+          'x-conversion-tier': 'fetch | browser | baas:provider | youtube',
           'x-conversion-time': 'Total conversion time in ms',
         },
         source: 'https://github.com/vinaes/md-succ-ai',
@@ -286,17 +306,14 @@ app.get('/*', async (c) => {
     // Check cache first (anti-amplification)
     // Include options in cache key — different mode/links/maxTokens = different result
     const optionsSuffix = [apiMode, apiLinks, apiMaxTokens].filter(Boolean).join('|');
-    const cacheKey = normalizeCacheKey(targetUrl) + (optionsSuffix ? `|${optionsSuffix}` : '');
-    const cached = getCached(cacheKey);
-    const isCacheHit = !!cached;
+    const cacheKey = `cache:${normalizeCacheKey(targetUrl)}${optionsSuffix ? `|${optionsSuffix}` : ''}`;
+    const hit = await getCachedResult(cacheKey);
+    const isCacheHit = !!hit;
     let result;
 
-    if (cached) {
-      result = cached;
-      // LRU: move to end so frequently accessed entries survive eviction
-      cache.delete(cacheKey);
-      cache.set(cacheKey, { result: cached, ts: Date.now() });
-      console.log(`[hit] ${safeLog(targetUrl)} ${result.tokens}tok`);
+    if (hit) {
+      result = hit.result;
+      console.log(`[hit:${hit.source}] ${safeLog(targetUrl)} ${result.tokens}tok`);
     } else {
       console.log(`[req] ${safeLog(targetUrl)}`);
       const pool = ENABLE_BROWSER ? browserPool : null;
@@ -306,7 +323,7 @@ app.get('/*', async (c) => {
         maxTokens: apiMaxTokens,
       };
       result = await convert(targetUrl, pool, options);
-      setCache(cacheKey, result);
+      await setCachedResult(cacheKey, result, 300);
       const q = result.quality || { score: 0, grade: 'F' };
       console.log(`[ok]  ${result.tier} ${result.tokens}tok ${result.totalMs}ms ${q.grade}(${q.score}) ${result.method || 'unknown'}`);
     }
@@ -382,6 +399,9 @@ app.get('/*', async (c) => {
   }
 });
 
+// Initialize Redis (non-blocking, graceful if unavailable)
+await initRedis(process.env.REDIS_URL || 'redis://redis:6379');
+
 // Initialize browser if enabled
 if (ENABLE_BROWSER) {
   browserPool.init().catch((err) => {
@@ -394,13 +414,14 @@ if (ENABLE_BROWSER) {
 serve({ fetch: app.fetch, port: PORT }, () => {
   console.log(`[md.succ.ai] Listening on http://0.0.0.0:${PORT}`);
   console.log(`[md.succ.ai] Browser fallback: ${ENABLE_BROWSER}`);
+  console.log(`[md.succ.ai] Redis: ${getRedis()?.status === 'ready' ? 'connected' : 'unavailable (using memory fallback)'}`);
 });
 
 // Graceful shutdown
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, async () => {
     console.log(`\n[md.succ.ai] ${sig} received, shutting down...`);
-    await browserPool.close();
+    await Promise.all([browserPool.close(), shutdownRedis()]);
     process.exit(0);
   });
 }

@@ -11,6 +11,7 @@ import { extractText as extractPdfText } from 'unpdf';
 import mammoth from 'mammoth';
 import * as XLSX from 'xlsx';
 import { resolve4, resolve6 } from 'node:dns/promises';
+import { fetchWithBaaS, hasBaaSProviders } from './baas.mjs';
 
 const turndown = new TurndownService({
   headingStyle: 'atx',
@@ -1920,7 +1921,7 @@ export async function convert(url, browserPool = null, options = {}) {
   const challengeTitle = result?.title && ERROR_PATTERNS.some((p) => result.title.toLowerCase().includes(p));
   // CF challenge detected via fetch — skip browser here to avoid IP rate-limit.
   // Caller (server.mjs /extract) will retry with skipFetch=true so browser is the ONLY request.
-  const cfPoisoned = challengeTitle && !options.skipFetch && !options.forceBrowser;
+  let cfPoisoned = challengeTitle && !options.skipFetch && !options.forceBrowser;
   const needsBrowser = !cfPoisoned && (fetchFailed || challengeTitle || options.forceBrowser ||
     (!goodExtraction && (result?.quality?.score ?? 0) < 0.6));
   if (browserPool && needsBrowser) {
@@ -1982,6 +1983,23 @@ export async function convert(url, browserPool = null, options = {}) {
       }
     } catch (e) {
       console.error(`[convert] LLM extraction failed: ${e.message}`);
+    }
+  }
+
+  // Tier 3: BaaS fallback for CF-protected sites
+  if (hasBaaSProviders() && (cfPoisoned || (result?.quality?.score ?? 0) < 0.4) && !options.skipBaaS) {
+    try {
+      const baasResult = await fetchWithBaaS(url);
+      if (baasResult) {
+        const baasMarkdown = await htmlToMarkdown(baasResult.html, url);
+        if (baasMarkdown.quality.score > (result?.quality?.score ?? 0)) {
+          result = baasMarkdown;
+          tier = `baas:${baasResult.provider}`;
+          cfPoisoned = false;
+        }
+      }
+    } catch (e) {
+      console.error(`[convert] BaaS failed: ${e.message}`);
     }
   }
 
