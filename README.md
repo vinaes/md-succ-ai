@@ -23,7 +23,7 @@
 
 ---
 
-> Convert any webpage or document to clean, readable Markdown. Supports HTML, PDF, DOCX, XLSX, CSV, and YouTube transcripts. Citation-style links, LLM-optimized output, and structured data extraction. Built for AI agents, MCP tools, and RAG pipelines. Powered by [succ](https://succ.ai).
+> Convert any webpage or document to clean, readable Markdown. Supports HTML, PDF, DOCX, XLSX, CSV, and YouTube transcripts. Citation-style links, LLM-optimized output, and structured data extraction. Redis-backed caching, multi-provider anti-bot bypass, headless browser rendering. Built for AI agents, MCP tools, and RAG pipelines. Powered by [succ](https://succ.ai).
 
 ## API
 
@@ -73,31 +73,41 @@ curl "https://md.succ.ai/?url=https://example.com&mode=fit&max_tokens=4000"
 curl -X POST https://md.succ.ai/extract \
   -H "Content-Type: application/json" \
   -d '{
-    "url": "https://example.com",
+    "url": "https://github.com/trending",
     "schema": {
       "type": "object",
       "properties": {
-        "title": { "type": "string" },
-        "heading": { "type": "string" }
+        "repositories": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": { "type": "string" },
+              "author": { "type": "string" },
+              "description": { "type": "string" },
+              "stars_today": { "type": "number" }
+            }
+          }
+        }
       }
     }
   }'
 ```
 
-Returns structured JSON matching the provided schema, extracted by LLM.
+Returns structured JSON matching the provided schema, extracted by LLM. Automatically retries with headless browser for SPA/JS-heavy sites when initial extraction returns empty data.
 
 ### Response Headers
 
 | Header | Description |
 |--------|-------------|
 | `x-markdown-tokens` | Token count (cl100k_base) |
-| `x-conversion-tier` | `fetch`, `browser`, `llm`, `youtube`, `document:pdf`, etc. |
+| `x-conversion-tier` | `fetch`, `browser`, `baas:scrapfly`, `llm`, `youtube`, `document:pdf`, etc. |
 | `x-conversion-time` | Total conversion time in ms |
-| `x-extraction-method` | Extraction pass used (`readability`, `defuddle`, `article-extractor`, etc.) |
+| `x-extraction-method` | Extraction pass used (`readability`, `defuddle`, `browser-raw`, etc.) |
 | `x-quality-score` | Quality score 0-1 |
 | `x-quality-grade` | Quality grade A-F |
 | `x-readability` | `true` if Readability extracted clean content |
-| `x-cache` | `hit` or `miss` |
+| `x-cache` | `hit` or `miss` (Redis-backed) |
 
 ### JSON Response
 
@@ -107,8 +117,6 @@ Returns structured JSON matching the provided schema, extracted by LLM.
   "url": "https://example.com",
   "content": "# Example Domain\n\nThis domain is for use in...",
   "excerpt": "This domain is for use in documentation examples...",
-  "byline": "",
-  "siteName": "",
   "tokens": 33,
   "tier": "fetch",
   "readability": true,
@@ -125,23 +133,25 @@ Returns structured JSON matching the provided schema, extracted by LLM.
 | `GET` | `/{url}` | Convert URL to Markdown |
 | `GET` | `/?url={url}` | Same, query param format |
 | `POST` | `/extract` | Structured data extraction (JSON schema) |
-| `GET` | `/health` | Health check |
+| `GET` | `/health` | Health check (includes Redis status) |
 | `GET` | `/` | API info |
 
 ## How It Works
 
-Multi-tier conversion pipeline with 9-pass content extraction, quality scoring, and post-processing:
+Multi-tier conversion pipeline with 9-pass content extraction, quality scoring, anti-bot bypass, and Redis caching:
 
 ```
-URL ──→ YouTube? ──→ Transcript extraction (innertube API)
+URL ──→ Cache hit? ──→ Return cached result (Redis, 5min/1hr TTL)
+         │
+         ├─ YouTube? ──→ Transcript extraction (innertube API)
          │
          ├─ Document? (PDF, DOCX, XLSX, CSV)
          │   └─→ Document converter → Markdown
          │
-         ├─ Tier 1: 9-pass extraction pipeline
-         │   1. Readability (standard)
-         │   2. Defuddle (by Obsidian team)
-         │   3. Article Extractor (different heuristics)
+         ├─ Tier 1: HTTP fetch + 9-pass extraction
+         │   1. Readability (Mozilla)
+         │   2. Defuddle (Obsidian team)
+         │   3. Article Extractor
          │   4. Readability on cleaned HTML
          │   5. CSS content selectors
          │   6. Schema.org / JSON-LD
@@ -150,14 +160,30 @@ URL ──→ YouTube? ──→ Transcript extraction (innertube API)
          │   9. Cleaned body fallback
          │   Quality ratio check after each pass (< 15% = skip)
          │
-         ├─ Tier 2: Playwright headless browser (SPA/JS-heavy)
+         ├─ Tier 2: Patchright headless browser (SPA/JS-heavy)
          │   └─→ Same 9-pass pipeline on rendered DOM
+         │   └─→ browser-raw fallback (light cleanup + Turndown)
          │
-         └─ Tier 2.5: LLM extraction (quality < B)
-             └─→ nano-gpt API → structured extraction
+         ├─ Tier 2.5: LLM extraction (quality < B)
+         │   └─→ nano-gpt API → content extraction
+         │
+         └─ Tier 3: BaaS anti-bot bypass (CF Turnstile / quality < D)
+             └─→ ScrapFly → ZenRows → ScrapingBee (rotation)
+             └─→ Same 9-pass pipeline on returned HTML
 ```
 
-Each tier only activates if the previous one produced insufficient quality. Post-processing applies citation conversion and fit_markdown pruning when requested.
+Each tier only activates if the previous one produced insufficient quality. Cloudflare challenge pages are detected automatically and trigger appropriate retry strategies. Post-processing applies citation conversion and fit_markdown pruning when requested.
+
+### Caching
+
+Two-layer cache system backed by Redis 7:
+
+| Cache | TTL | Key | What's cached |
+|-------|-----|-----|---------------|
+| Markdown | 5 min | `cache:{hash(url+options)}` | Full conversion result |
+| Extract | 1 hr | `extract:{hash(url)}:{hash(schema)}` | LLM extraction result |
+
+Cache keys use SHA-256 hashes to prevent poisoning via long/malicious URLs. Falls back to in-memory Map when Redis is unavailable.
 
 ## Supported Formats
 
@@ -181,7 +207,9 @@ Documents are also detected by URL extension (`.pdf`, `.docx`, `.xlsx`, `.csv`) 
 | [@extractus/article-extractor](https://github.com/nicedoc/extractus) | Alternative extraction heuristics |
 | [Turndown](https://github.com/mixmark-io/turndown) | HTML → Markdown conversion |
 | [linkedom](https://github.com/WebReflection/linkedom) | Lightweight DOM parser |
-| [Playwright](https://playwright.dev) | Headless Chromium for SPA/JS-heavy sites |
+| [Patchright](https://github.com/nicedoc/patchright) | Patched Chromium for anti-detection |
+| [Redis](https://redis.io) | Cache and rate limiting |
+| [ioredis](https://github.com/redis/ioredis) | Redis client for Node.js |
 | [unpdf](https://github.com/unjs/unpdf) | PDF text extraction |
 | [mammoth](https://github.com/mwilliamson/mammoth.js) | DOCX → HTML conversion |
 | [SheetJS](https://sheetjs.com) | XLSX/XLS/CSV parsing |
@@ -196,29 +224,42 @@ Documents are also detected by URL extension (`.pdf`, `.docx`, `.xlsx`, `.csv`) 
 ```bash
 git clone https://github.com/vinaes/md-succ-ai.git
 cd md-succ-ai
+cp .env.example .env  # edit with your API keys
 docker compose up -d
 ```
 
+This starts two containers:
+- **md-succ-ai** — API server with Patchright browser on port 3100
+- **md-succ-redis** — Redis 7 for caching and rate limiting
+
 The API will be available at `http://localhost:3100`.
 
-### Local
+### Local (without Docker)
 
 ```bash
 npm install
-npx playwright install chromium
+npx patchright install chromium
 npm start
 ```
+
+Note: Redis is optional for local development. Without Redis, caching and rate limiting fall back to in-memory Map.
 
 ### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `3000` | Server port |
-| `ENABLE_BROWSER` | `true` | Enable Playwright fallback |
+| `ENABLE_BROWSER` | `true` | Enable Patchright browser fallback |
 | `NODE_ENV` | `production` | Node environment |
+| `REDIS_URL` | `redis://redis:6379` | Redis connection URL |
 | `NANOGPT_API_KEY` | — | nano-gpt API key for LLM tier and /extract |
 | `NANOGPT_MODEL` | `meta-llama/llama-3.3-70b-instruct` | LLM model for content extraction (Tier 2.5) |
-| `NANOGPT_EXTRACT_MODEL` | same as `NANOGPT_MODEL` | LLM model for `/extract` endpoint (can use a larger model) |
+| `NANOGPT_EXTRACT_MODEL` | same as `NANOGPT_MODEL` | LLM model for `/extract` endpoint |
+| `SCRAPFLY_API_KEY` | — | [ScrapFly](https://scrapfly.io) anti-bot bypass (1000 credits/mo free) |
+| `ZENROWS_API_KEY` | — | [ZenRows](https://zenrows.com) anti-bot bypass (1000 credits trial) |
+| `SCRAPINGBEE_API_KEY` | — | [ScrapingBee](https://scrapingbee.com) anti-bot bypass (1000 credits one-time) |
+
+BaaS providers are optional. When configured, they activate as Tier 3 for Cloudflare-protected sites. Providers are tried in order; if one hits rate limits, the next is used automatically.
 
 ### Nginx Reverse Proxy
 
@@ -226,20 +267,35 @@ An example nginx config is in `nginx/md.succ.ai.conf`:
 
 - Rate limiting: 10 req/s per IP, burst 20
 - Connection limit: 10 concurrent per IP
-- Proxy timeouts: 60s read (for Playwright renders)
+- Proxy timeouts: 60s read (for browser renders)
 - Dedicated `/extract` location with 64KB body limit
 - Security headers (nosniff, X-Frame-Options, Referrer-Policy)
 
 ## Security
 
-- **SSRF protection**: URL validation, DNS resolution checks (IPv4 + IPv6), redirect validation per hop, Playwright route blocking
+- **SSRF protection**: URL validation, DNS resolution checks (IPv4 + IPv6), redirect validation per hop, Patchright route blocking
 - **Private IP blocking**: 127/8, 10/8, 172.16/12, 192.168/16, 169.254/16, CGNAT, cloud metadata hostnames, hex/octal IP formats
 - **Input limits**: 5MB response size, 5 max redirects, content-type validation, 64KB body limit on /extract
 - **Output sanitization**: Error messages stripped of internal paths/stack traces, URLs sanitized in responses
-- **Cache**: In-memory LRU with TTL, normalized cache keys (strips tracking params), options-aware
+- **Cache security**: SHA-256 hashed keys (no URL poisoning), Redis LRU eviction (128MB cap), no persistence (pure cache)
+- **API key safety**: BaaS API keys only used in outbound requests, never logged or exposed in responses
 - **LLM hardening**: Prompt injection protection (HTML sanitization, document delimiters, output validation), schema field whitelist
-- **Rate limiting**: Per-IP rate limiting with Cloudflare CF-Connecting-IP support
+- **Rate limiting**: Per-IP via Redis INCR+EXPIRE (atomic pipeline), CF-Connecting-IP support, in-memory fallback
+- **CF challenge detection**: Cloudflare challenge pages detected and handled without wasting browser/BaaS credits
 - **0 CVE**: All dependencies patched, monitored via Dependabot
+
+## Architecture
+
+```
+┌──────────────┐     ┌──────────────┐
+│  md-succ-ai  │────→│  Redis 7     │
+│  (Node 22)   │     │  (cache/rl)  │
+│              │     └──────────────┘
+│  Hono API    │
+│  Patchright  │────→ target websites
+│  BaaS client │────→ ScrapFly / ZenRows / ScrapingBee
+└──────────────┘
+```
 
 ## License
 
