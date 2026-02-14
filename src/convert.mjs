@@ -1024,6 +1024,17 @@ async function fetchHTML(url) {
       continue;
     }
 
+    // Check content-type — reject binary files (mp3, pdf, zip, images, etc.)
+    const contentType = (res.headers.get('content-type') || '').toLowerCase();
+    if (contentType && !contentType.includes('text/') &&
+        !contentType.includes('application/xhtml') &&
+        !contentType.includes('application/xml') &&
+        !contentType.includes('application/json')) {
+      res.body?.cancel?.();
+      const ct = contentType.split(';')[0].trim();
+      throw new Error(`Unsupported content type: ${ct}`);
+    }
+
     // Check content-length before reading body
     const cl = parseInt(res.headers.get('content-length') || '0', 10);
     if (cl > MAX_RESPONSE_SIZE) {
