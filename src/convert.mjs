@@ -1894,7 +1894,12 @@ export async function convert(url, browserPool = null, options = {}) {
   let tier = 'fetch';
 
   // YouTube early path: extract transcript directly (skip HTML pipeline)
-  const ytResult = await tryYouTube(url);
+  let ytResult = null;
+  try {
+    ytResult = await tryYouTube(url);
+  } catch (ytErr) {
+    console.error(`[convert] tryYouTube threw unexpectedly: ${ytErr.message}`);
+  }
   if (ytResult) {
     let { markdown } = ytResult;
     if (options.links === 'citations') markdown = convertToCitations(markdown);
