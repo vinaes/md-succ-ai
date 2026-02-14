@@ -1878,13 +1878,13 @@ export async function convert(url, browserPool = null, options = {}) {
     };
   }
 
-  // Tier 1: plain fetch
+  // Tier 1: plain fetch (skippable for browser-only retry)
   let html;
-  let fetchFailed = false;
-  let fetchError = '';
+  let fetchFailed = options.skipFetch || false;
+  let fetchError = options.skipFetch ? 'skipped' : '';
   let result;
 
-  try {
+  if (!options.skipFetch) try {
     const fetched = await fetchHTML(url);
 
     // Document format path (PDF, DOCX, XLSX, CSV) — convert and return early
@@ -1918,8 +1918,11 @@ export async function convert(url, browserPool = null, options = {}) {
   // Tier 2: Patchright browser fallback if fetch failed or extraction quality is low
   const goodExtraction = result?.readability || ['readability-cleaned', 'article-extractor', 'defuddle'].includes(result?.method);
   const challengeTitle = result?.title && ERROR_PATTERNS.some((p) => result.title.toLowerCase().includes(p));
-  const needsBrowser = fetchFailed || challengeTitle || options.forceBrowser ||
-    (!goodExtraction && (result?.quality?.score ?? 0) < 0.6);
+  // CF challenge detected via fetch — skip browser here to avoid IP rate-limit.
+  // Caller (server.mjs /extract) will retry with skipFetch=true so browser is the ONLY request.
+  const cfPoisoned = challengeTitle && !options.skipFetch && !options.forceBrowser;
+  const needsBrowser = !cfPoisoned && (fetchFailed || challengeTitle || options.forceBrowser ||
+    (!goodExtraction && (result?.quality?.score ?? 0) < 0.6));
   if (browserPool && needsBrowser) {
     try {
       tier = 'browser';
@@ -2006,5 +2009,6 @@ export async function convert(url, browserPool = null, options = {}) {
     url,
     tier,
     totalMs,
+    ...(cfPoisoned && { cfChallenge: true }),
   };
 }
