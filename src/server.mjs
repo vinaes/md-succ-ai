@@ -160,13 +160,37 @@ app.post('/extract', async (c) => {
 
 // Main endpoint: GET /:url
 // Also handles: GET /https://example.com/path
+// Known API params — everything else belongs to the target URL
+const API_PARAMS = new Set(['url', 'mode', 'links', 'max_tokens']);
+
 app.get('/*', async (c) => {
-  // Extract URL from path — everything after first /
+  // Extract our API params before reconstructing target URL
+  const apiMode = c.req.query('mode') || undefined;
+  const apiLinks = c.req.query('links') || undefined;
+  const apiMaxTokens = parseInt(c.req.query('max_tokens') || '0', 10) || undefined;
+
+  // Build target URL from path + non-API query params
+  // When requesting /https://youtube.com/watch?v=xxx&mode=fit,
+  // Hono parses ?v=xxx&mode=fit as request query params.
+  // We need to reconstruct the target URL with its original query string.
   let targetUrl = c.req.path.slice(1);
 
-  // Also check ?url= query param
+  // Collect query params that belong to the target URL (not our API)
+  const targetParams = new URLSearchParams();
+  const rawUrl = new URL(c.req.url);
+  for (const [key, value] of rawUrl.searchParams) {
+    if (!API_PARAMS.has(key)) {
+      targetParams.append(key, value);
+    }
+  }
+
+  // If path is empty, check ?url= param
   if (!targetUrl || targetUrl === '') {
     targetUrl = c.req.query('url') || '';
+  } else {
+    // Re-attach target query params to the URL from path
+    const qs = targetParams.toString();
+    if (qs) targetUrl += '?' + qs;
   }
 
   // Decode URI components
@@ -233,9 +257,9 @@ app.get('/*', async (c) => {
       console.log(`[req] ${safeLog(targetUrl)}`);
       const pool = ENABLE_BROWSER ? browserPool : null;
       const options = {
-        links: c.req.query('links') || undefined,
-        mode: c.req.query('mode') || undefined,
-        maxTokens: parseInt(c.req.query('max_tokens') || '0', 10) || undefined,
+        links: apiLinks,
+        mode: apiMode,
+        maxTokens: apiMaxTokens,
       };
       result = await convert(targetUrl, pool, options);
       setCache(cacheKey, result);
