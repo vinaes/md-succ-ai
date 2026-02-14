@@ -1035,7 +1035,9 @@ async function tryLLMExtraction(html, url) {
 
     // Strip thinking tags (Qwen3 and other reasoning models)
     if (markdown.includes('<think>')) {
-      markdown = markdown.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+      markdown = markdown.replace(/<think>[\s\S]*?<\/think>/g, '');
+      markdown = markdown.replace(/<think>[\s\S]*$/g, ''); // unclosed tag (truncated by max_tokens)
+      markdown = markdown.trim();
     }
 
     // Strip code fences if model wrapped output in ```markdown ... ```
@@ -1814,7 +1816,9 @@ export async function extractSchema(html, url, schema) {
 
   // Strip thinking tags (Qwen3 and other reasoning models)
   if (output.includes('<think>')) {
-    output = output.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    output = output.replace(/<think>[\s\S]*?<\/think>/g, '');
+    output = output.replace(/<think>[\s\S]*$/g, ''); // unclosed tag (truncated by max_tokens)
+    output = output.trim();
   }
 
   // Strip markdown code fences if present
@@ -1836,7 +1840,7 @@ export async function extractSchema(html, url, schema) {
   const valid = validate(data);
 
   const ms = Math.round(performance.now() - t0);
-  console.log(`[schema] ${url} ${ms}ms valid=${valid}`);
+  console.log(`[schema] ${NANOGPT_EXTRACT_MODEL.split('/').pop()} ${url} ${ms}ms valid=${valid}`);
 
   return {
     data,
