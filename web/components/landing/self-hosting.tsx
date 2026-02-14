@@ -41,7 +41,7 @@ function CopyBlock({ code, title }: { code: string; title: string }) {
 
 export function SelfHosting() {
   return (
-    <section id="self-hosting" className="px-6 py-32 scroll-mt-20 min-h-screen flex items-center">
+    <section id="self-hosting" className="px-4 sm:px-6 py-20 sm:py-32 scroll-mt-20 min-h-screen flex items-center">
       <div className="max-w-4xl mx-auto">
         <div className="text-center mb-16">
           <p className="text-sm font-mono text-green mb-3 tracking-wide uppercase">Self-Hosting</p>
@@ -92,9 +92,9 @@ npm start`}
           </div>
         </div>
 
-        <div className="mt-12 bg-card border border-border rounded-lg p-6">
+        <div className="mt-8 sm:mt-12 bg-card border border-border rounded-lg p-4 sm:p-6">
           <h3 className="text-sm font-mono text-green mb-4 uppercase tracking-wide">Environment Variables</h3>
-          <div className="space-y-3 text-sm font-mono">
+          <div className="space-y-3 text-xs sm:text-sm font-mono">
             <div className="flex flex-col sm:flex-row sm:justify-between gap-1">
               <span className="text-foreground">PORT</span>
               <span className="text-muted-foreground">Server port (default: 3000)</span>
@@ -106,8 +106,18 @@ npm start`}
             </div>
             <div className="h-px bg-border" />
             <div className="flex flex-col sm:flex-row sm:justify-between gap-1">
-              <span className="text-foreground">NODE_ENV</span>
-              <span className="text-muted-foreground">Environment (default: production)</span>
+              <span className="text-foreground">NANOGPT_API_KEY</span>
+              <span className="text-muted-foreground">LLM tier API key (optional)</span>
+            </div>
+            <div className="h-px bg-border" />
+            <div className="flex flex-col sm:flex-row sm:justify-between gap-1">
+              <span className="text-foreground">NANOGPT_MODEL</span>
+              <span className="text-muted-foreground">LLM model (default: llama-3.1-8b)</span>
+            </div>
+            <div className="h-px bg-border" />
+            <div className="flex flex-col sm:flex-row sm:justify-between gap-1">
+              <span className="text-foreground">EXTERNAL_API_LIMIT</span>
+              <span className="text-muted-foreground">Monthly API cap (default: 200)</span>
             </div>
           </div>
         </div>

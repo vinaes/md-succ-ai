@@ -6,7 +6,6 @@ const links = {
     { label: "Try It", href: "#try" },
     { label: "Features", href: "#features" },
     { label: "API", href: "#api" },
-    { label: "Comparison", href: "#comparison" },
     { label: "Self-Hosting", href: "#self-hosting" },
   ],
   resources: [

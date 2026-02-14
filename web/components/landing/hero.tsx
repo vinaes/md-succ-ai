@@ -2,12 +2,12 @@
 
 import * as React from "react"
 import { Button } from "@/components/ui/button"
-import { Github, ArrowRight, Zap, Shield, Globe } from "lucide-react"
+import { Github, ArrowRight, Zap, Shield, FileText } from "lucide-react"
 import Link from "next/link"
 
 export function Hero() {
   return (
-    <section id="try" className="flex flex-col items-center justify-center min-h-[85vh] px-6 py-24 text-center scroll-mt-20">
+    <section id="try" className="flex flex-col items-center justify-center min-h-[85vh] px-4 sm:px-6 py-24 text-center scroll-mt-20">
       {/* Badges */}
       <div className="flex flex-wrap items-center justify-center gap-3 mb-8">
         <div className="flex items-center gap-2 px-4 py-2 rounded-full border border-border bg-card/50">
@@ -19,33 +19,33 @@ export function Hero() {
           <span className="text-xs font-mono text-muted-foreground">Open Source</span>
         </div>
         <div className="flex items-center gap-2 px-4 py-2 rounded-full border border-green/30 bg-green/5">
-          <div className="w-2 h-2 rounded-full bg-green animate-pulse" />
+          <Shield className="w-3 h-3 text-green" />
           <span className="text-xs font-mono text-green/80 tracking-wide uppercase">
-            Self-hostable
+            0 CVE
           </span>
         </div>
       </div>
 
       {/* Logo + Title */}
       <div className="flex items-center gap-3 mb-4">
-        <div className="w-5 h-5 rounded-full bg-green" />
-        <span className="text-6xl md:text-8xl font-bold tracking-tight text-foreground">
+        <div className="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-green" />
+        <span className="text-4xl sm:text-6xl md:text-8xl font-bold tracking-tight text-foreground">
           md.succ.ai
         </span>
       </div>
 
       {/* Subtitle */}
-      <h1 className="text-xl md:text-2xl text-muted-foreground mb-4 max-w-xl text-balance leading-relaxed font-mono">
-        html to markdown
+      <h1 className="text-lg sm:text-xl md:text-2xl text-muted-foreground mb-4 max-w-xl text-balance leading-relaxed font-mono">
+        url to markdown
       </h1>
 
-      <p className="text-base text-muted-foreground/80 mb-12 max-w-lg text-balance leading-relaxed">
-        Convert any webpage to clean, readable Markdown.
-        Built for AI agents, MCP tools, and RAG pipelines.
+      <p className="text-sm sm:text-base text-muted-foreground/80 mb-12 max-w-lg text-balance leading-relaxed px-2">
+        Convert any webpage or document to clean Markdown.
+        HTML, PDF, DOCX, XLSX, CSV. Built for AI agents and RAG pipelines.
       </p>
 
       {/* Try it */}
-      <div className="mb-8 w-full max-w-xl">
+      <div className="mb-8 w-full max-w-xl px-2">
         <UrlInput />
       </div>
 
@@ -75,20 +75,20 @@ export function Hero() {
       </div>
 
       {/* Stats */}
-      <div className="flex items-center gap-6 mt-10 text-sm text-muted-foreground">
+      <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 mt-10 text-xs sm:text-sm text-muted-foreground">
         <div className="flex items-center gap-1.5">
           <Zap className="w-4 h-4 text-green" />
           <span className="font-mono">200-500ms</span>
         </div>
-        <span className="text-border">|</span>
+        <span className="text-border hidden sm:inline">|</span>
         <div className="flex items-center gap-1.5">
           <Shield className="w-4 h-4 text-blue" />
-          <span className="font-mono">Readability</span>
+          <span className="font-mono">8-pass extraction</span>
         </div>
-        <span className="text-border">|</span>
+        <span className="text-border hidden sm:inline">|</span>
         <div className="flex items-center gap-1.5">
-          <Globe className="w-4 h-4 text-green" />
-          <span className="font-mono">SPA Support</span>
+          <FileText className="w-4 h-4 text-green" />
+          <span className="font-mono">PDF / DOCX / XLSX</span>
         </div>
       </div>
     </section>
@@ -108,7 +108,7 @@ function LoadingDots() {
 function UrlInput() {
   const [url, setUrl] = React.useState("")
   const [loading, setLoading] = React.useState(false)
-  const [result, setResult] = React.useState<{ markdown: string; tokens: number; tier: string; time: number } | null>(null)
+  const [result, setResult] = React.useState<{ markdown: string; tokens: number; tier: string; time: number; quality?: string } | null>(null)
   const [error, setError] = React.useState("")
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -140,6 +140,7 @@ function UrlInput() {
           tokens: data.tokens,
           tier: data.tier,
           time: data.time_ms,
+          quality: data.quality?.grade,
         })
       }
     } catch {
@@ -151,42 +152,43 @@ function UrlInput() {
 
   return (
     <div className="w-full">
-      <form onSubmit={handleSubmit} className="flex items-center gap-2 bg-card border border-border rounded-lg px-4 py-3 hover:border-green/50 transition-colors focus-within:border-green/50">
-        <span className="text-green font-mono text-sm shrink-0">md.succ.ai/</span>
+      <form onSubmit={handleSubmit} className="flex items-center gap-2 bg-card border border-border rounded-lg px-3 sm:px-4 py-3 hover:border-green/50 transition-colors focus-within:border-green/50">
+        <span className="text-green font-mono text-xs sm:text-sm shrink-0">md.succ.ai/</span>
         <input
           type="text"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           placeholder="https://example.com"
-          className="flex-1 bg-transparent text-foreground font-mono text-sm outline-none placeholder:text-muted-foreground/50"
+          className="flex-1 min-w-0 bg-transparent text-foreground font-mono text-xs sm:text-sm outline-none placeholder:text-muted-foreground/50"
         />
         <button
           type="submit"
           disabled={loading || !url.trim()}
-          className="px-4 py-1.5 bg-green hover:bg-green/90 text-background text-sm font-medium rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+          className="px-3 sm:px-4 py-1.5 bg-green hover:bg-green/90 text-background text-sm font-medium rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
         >
           {loading ? <LoadingDots /> : "Convert"}
         </button>
       </form>
 
       {error && (
-        <div className="mt-3 px-4 py-3 bg-destructive/10 border border-destructive/30 rounded-lg text-sm text-destructive font-mono">
+        <div className="mt-3 px-4 py-3 bg-destructive/10 border border-destructive/30 rounded-lg text-sm text-destructive font-mono break-all">
           {error}
         </div>
       )}
 
       {result && (
         <div className="mt-3 bg-card border border-border rounded-lg overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-secondary/30">
+          <div className="flex items-center justify-between px-3 sm:px-4 py-2 border-b border-border bg-secondary/30">
             <span className="text-xs font-mono text-muted-foreground">result</span>
-            <div className="flex items-center gap-3 text-xs font-mono text-muted-foreground">
-              <span className="text-green">{result.tokens} tokens</span>
+            <div className="flex items-center gap-2 sm:gap-3 text-xs font-mono text-muted-foreground">
+              <span className="text-green">{result.tokens} tok</span>
               <span>{result.tier}</span>
+              {result.quality && <span className="text-blue">{result.quality}</span>}
               <span>{result.time}ms</span>
             </div>
           </div>
           <pre className="p-4 max-h-64 overflow-y-auto overflow-x-hidden custom-scrollbar">
-            <code className="text-sm font-mono text-muted-foreground whitespace-pre-wrap leading-relaxed">
+            <code className="text-xs sm:text-sm font-mono text-muted-foreground whitespace-pre-wrap leading-relaxed">
               {result.markdown.slice(0, 2000)}{result.markdown.length > 2000 ? "\n\n... (truncated)" : ""}
             </code>
           </pre>

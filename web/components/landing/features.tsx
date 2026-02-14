@@ -1,61 +1,61 @@
-import { Scissors, Timer, Globe, Gauge, Server, FileText } from "lucide-react"
+import { Scissors, Timer, Globe, Gauge, Shield, FileText } from "lucide-react"
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 
 const features = [
   {
     icon: Scissors,
-    title: "Readability Extraction",
-    description: "Mozilla Readability strips navigation, sidebars, footers, and ads. You get the article content, not the page chrome.",
+    title: "8-Pass Extraction",
+    description: "Readability, article-extractor, CSS selectors, Schema.org, Open Graph, text density — 8 extraction passes to find content other tools miss.",
     color: "text-green",
   },
   {
     icon: Timer,
     title: "200-500ms Static Pages",
-    description: "Plain fetch + DOM parse + Readability + Turndown. No browser overhead for well-structured HTML pages.",
+    description: "Plain fetch + DOM parse + multi-pass extraction + Turndown. No browser overhead for well-structured HTML pages.",
     color: "text-blue",
   },
   {
     icon: Globe,
-    title: "SPA / JS-Heavy Sites",
-    description: "Playwright headless Chromium as automatic fallback for single-page apps, client-rendered content, and JavaScript-heavy sites.",
-    color: "text-green",
-  },
-  {
-    icon: Gauge,
-    title: "Token Counting",
-    description: "Every response includes cl100k_base token count in the x-markdown-tokens header. Know exactly how much context you're using.",
-    color: "text-blue",
-  },
-  {
-    icon: Server,
-    title: "Self-Hostable",
-    description: "Docker image, docker-compose.yml, nginx config included. Deploy to your own infrastructure in minutes. No vendor lock-in.",
+    title: "SPA + Browser Fallback",
+    description: "Playwright headless Chromium as automatic Tier 2. LLM-based extraction as Tier 2.5. External API fallbacks as Tier 3. Automatic quality-based escalation.",
     color: "text-green",
   },
   {
     icon: FileText,
-    title: "Content Negotiation",
-    description: "Accept: application/json for structured data with metadata. Default text/markdown for raw content. Proper HTTP headers.",
+    title: "PDF, DOCX, XLSX, CSV",
+    description: "Not just HTML — extract text from PDFs, convert Word documents, parse spreadsheets to markdown tables. Auto-detected by Content-Type.",
+    color: "text-blue",
+  },
+  {
+    icon: Gauge,
+    title: "Quality Scoring",
+    description: "Every response includes quality score (0-1) and grade (A-F). Token count, extraction method, conversion tier — full observability.",
+    color: "text-green",
+  },
+  {
+    icon: Shield,
+    title: "Security Hardened",
+    description: "SSRF protection with DNS validation, private IP blocking, redirect validation. Prompt injection hardening. 0 CVE dependencies.",
     color: "text-blue",
   },
 ]
 
 export function Features() {
   return (
-    <section id="features" className="px-6 py-32 scroll-mt-20 min-h-screen flex items-center">
+    <section id="features" className="px-4 sm:px-6 py-20 sm:py-32 scroll-mt-20 min-h-screen flex items-center">
       <div className="max-w-6xl mx-auto">
-        <div className="text-center mb-16">
+        <div className="text-center mb-12 sm:mb-16">
           <p className="text-sm font-mono text-green mb-3 tracking-wide uppercase">Why md.succ.ai</p>
-          <h2 className="text-3xl md:text-4xl font-bold mb-4 text-balance">
+          <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-4 text-balance">
             Clean content, not page cruft
           </h2>
-          <p className="text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-            Other services dump the entire HTML as markdown, including navigation, sidebars, and footers.
-            We extract just the article content using Mozilla Readability.
+          <p className="text-sm sm:text-base text-muted-foreground max-w-2xl mx-auto leading-relaxed px-2">
+            8 extraction passes to find content. 4 conversion tiers for reliability.
+            Quality scoring to verify results. Document format support beyond HTML.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
           {features.map((feature) => (
             <Card
               key={feature.title}
