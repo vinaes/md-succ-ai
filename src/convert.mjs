@@ -2071,40 +2071,85 @@ export async function convert(url, browserPool = null, options = {}) {
     throw new Error('Conversion produced no result');
   }
 
-  // Tier 2.5: LLM extraction when quality < B and we have HTML
-  if (html && (result?.quality?.score ?? 0) < 0.6) {
-    escalation.push(`low quality ${result?.quality?.score?.toFixed(2)} via ${result?.method || 'unknown'} → trying LLM`);
-    try {
-      const llmResult = await tryLLMExtraction(html, url);
-      if (llmResult && llmResult.quality.score > (result?.quality?.score ?? 0)) {
-        result = llmResult;
-        tier = 'llm';
-      } else {
-        escalation.push('LLM extraction did not improve quality');
-      }
-    } catch (e) {
-      escalation.push(`LLM extraction failed: ${e.message}`);
-      console.error(`[convert] LLM extraction failed: ${e.message}`);
-    }
-  }
+  // ── Tier 2.5 + 3: LLM and BaaS extraction ────────────────────
+  // When both are needed, race them in parallel (saves 30-45s vs sequential)
+  const currentScore = result?.quality?.score ?? 0;
+  const needsLLM = html && currentScore < 0.6;
+  const needsBaaS = hasBaaSProviders() &&
+    (cfPoisoned || currentScore < 0.4) && !options.skipBaaS;
 
-  // Tier 3: BaaS fallback for CF-protected sites
-  if (hasBaaSProviders() && (cfPoisoned || (result?.quality?.score ?? 0) < 0.4) && !options.skipBaaS) {
-    if (cfPoisoned) escalation.push('CF challenge detected → trying BaaS');
-    else escalation.push(`quality still ${result?.quality?.score?.toFixed(2)} after LLM → trying BaaS`);
-    try {
-      const baasResult = await fetchWithBaaS(url);
-      if (baasResult) {
-        const baasMarkdown = await htmlToMarkdown(baasResult.html, url);
-        if (baasMarkdown.quality.score > (result?.quality?.score ?? 0)) {
-          result = baasMarkdown;
-          tier = `baas:${baasResult.provider}`;
-          cfPoisoned = false;
-        }
+  if (needsLLM || needsBaaS) {
+    const candidates = [];
+
+    if (needsLLM && needsBaaS) {
+      escalation.push(`quality ${currentScore.toFixed(2)} → racing LLM + BaaS`);
+
+      const [llmSettled, baasSettled] = await Promise.allSettled([
+        tryLLMExtraction(html, url),
+        (async () => {
+          const baasResult = await fetchWithBaaS(url);
+          if (!baasResult) return null;
+          const md = await htmlToMarkdown(baasResult.html, url);
+          return { ...md, _provider: baasResult.provider };
+        })(),
+      ]);
+
+      if (llmSettled.status === 'fulfilled' && llmSettled.value) {
+        candidates.push({ result: llmSettled.value, tier: 'llm' });
+      } else if (llmSettled.status === 'rejected') {
+        escalation.push(`LLM failed: ${llmSettled.reason?.message}`);
+        console.error(`[convert] LLM extraction failed: ${llmSettled.reason?.message}`);
+      } else {
+        escalation.push('LLM extraction returned null');
       }
-    } catch (e) {
-      escalation.push(`BaaS failed: ${e.message}`);
-      console.error(`[convert] BaaS failed: ${e.message}`);
+
+      if (baasSettled.status === 'fulfilled' && baasSettled.value) {
+        const { _provider, ...md } = baasSettled.value;
+        candidates.push({ result: md, tier: `baas:${_provider}` });
+      } else if (baasSettled.status === 'rejected') {
+        escalation.push(`BaaS failed: ${baasSettled.reason?.message}`);
+        console.error(`[convert] BaaS failed: ${baasSettled.reason?.message}`);
+      } else {
+        escalation.push('BaaS returned no result');
+      }
+
+    } else if (needsLLM) {
+      escalation.push(`low quality ${currentScore.toFixed(2)} via ${result?.method || 'unknown'} → trying LLM`);
+      try {
+        const llmResult = await tryLLMExtraction(html, url);
+        if (llmResult) candidates.push({ result: llmResult, tier: 'llm' });
+        else escalation.push('LLM extraction returned null');
+      } catch (e) {
+        escalation.push(`LLM failed: ${e.message}`);
+        console.error(`[convert] LLM extraction failed: ${e.message}`);
+      }
+
+    } else if (needsBaaS) {
+      if (cfPoisoned) escalation.push('CF challenge → trying BaaS');
+      else escalation.push(`quality ${currentScore.toFixed(2)} → trying BaaS`);
+      try {
+        const baasResult = await fetchWithBaaS(url);
+        if (baasResult) {
+          const md = await htmlToMarkdown(baasResult.html, url);
+          candidates.push({ result: md, tier: `baas:${baasResult.provider}` });
+        }
+      } catch (e) {
+        escalation.push(`BaaS failed: ${e.message}`);
+        console.error(`[convert] BaaS failed: ${e.message}`);
+      }
+    }
+
+    // Pick best candidate (highest quality score wins)
+    for (const c of candidates) {
+      if (c.result.quality.score > (result?.quality?.score ?? 0)) {
+        result = c.result;
+        tier = c.tier;
+        if (tier.startsWith('baas:')) cfPoisoned = false;
+      }
+    }
+
+    if (candidates.length > 0 && tier !== 'llm' && !tier.startsWith('baas:')) {
+      escalation.push('LLM/BaaS did not improve quality');
     }
   }
 
