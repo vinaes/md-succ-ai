@@ -33,6 +33,23 @@ export const metadata: Metadata = {
     title: 'md.succ.ai — HTML to clean Markdown API',
     description: 'Convert any URL to clean Markdown. Built for AI agents, MCP tools, and RAG pipelines. No API key required.',
   },
+  icons: {
+    icon: [
+      {
+        url: '/icon-light-32x32.png',
+        media: '(prefers-color-scheme: light)',
+      },
+      {
+        url: '/icon-dark-32x32.png',
+        media: '(prefers-color-scheme: dark)',
+      },
+      {
+        url: '/icon.svg',
+        type: 'image/svg+xml',
+      },
+    ],
+    apple: '/apple-icon.png',
+  },
   robots: {
     index: true,
     follow: true,
