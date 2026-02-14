@@ -220,6 +220,7 @@ app.get('/*', async (c) => {
     console.error(`[err] ${safeLog(targetUrl)} — ${err.message}`);
     const status = err.message?.includes('Blocked URL') ? 403
       : err.message?.includes('too large') ? 413
+      : err.message?.includes('Unsupported content type') ? 415
       : err.message?.includes('Too many redirects') ? 502
       : err.message?.includes('pool exhausted') ? 503
       : 500;
