@@ -109,8 +109,12 @@ app.post('/extract', async (c) => {
     return c.json({ error: 'Request body too large (max 64KB)' }, 413);
   }
 
-  // Rate limiting per IP — prefer x-real-ip (set by nginx, not spoofable)
-  const ip = c.req.header('x-real-ip')
+  // Rate limiting per IP — Cloudflare → nginx → forwarded-for fallback
+  // CF-Connecting-IP: set by Cloudflare, most reliable behind CF proxy
+  // x-real-ip: set by nginx ($remote_addr), reliable behind nginx only
+  // x-forwarded-for last entry: last hop added by trusted proxy
+  const ip = c.req.header('cf-connecting-ip')
+    || c.req.header('x-real-ip')
     || c.req.header('x-forwarded-for')?.split(',').pop()?.trim()
     || 'unknown';
   const now = Date.now();
