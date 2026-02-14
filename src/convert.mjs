@@ -1918,7 +1918,7 @@ export async function convert(url, browserPool = null, options = {}) {
   // Tier 2: Patchright browser fallback if fetch failed or extraction quality is low
   const goodExtraction = result?.readability || ['readability-cleaned', 'article-extractor', 'defuddle'].includes(result?.method);
   const challengeTitle = result?.title && ERROR_PATTERNS.some((p) => result.title.toLowerCase().includes(p));
-  const needsBrowser = fetchFailed || challengeTitle ||
+  const needsBrowser = fetchFailed || challengeTitle || options.forceBrowser ||
     (!goodExtraction && (result?.quality?.score ?? 0) < 0.6);
   if (browserPool && needsBrowser) {
     try {
