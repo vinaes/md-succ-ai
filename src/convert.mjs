@@ -1766,12 +1766,10 @@ export async function extractSchema(html, url, schema) {
     jsonSchema = { type: 'object', properties };
   }
 
-  // Convert HTML to Markdown for better LLM comprehension
-  const { document } = parseHTML(html);
-  cleanHTML(document);
-  let cleanedHtml = document.body?.innerHTML || '';
-  cleanedHtml = cleanedHtml.replace(/<!--[\s\S]*?-->/g, '');
-  const markdown = cleanMarkdown(turndown.turndown(cleanedHtml));
+  // Convert HTML to Markdown using the 9-pass extraction pipeline
+  // (cleanHTML alone strips too much; extractContent finds the article body)
+  const extracted = await htmlToMarkdown(html, url);
+  const markdown = extracted.markdown || '';
 
   // Truncate to fit context
   let truncated = markdown.length > MAX_HTML_FOR_LLM
@@ -1781,6 +1779,8 @@ export async function extractSchema(html, url, schema) {
 
   const schemaDesc = JSON.stringify(jsonSchema.properties || jsonSchema, null, 2);
   const userMessage = `<DOCUMENT>\n${truncated}\n</DOCUMENT>\n\n<SCHEMA>\n${schemaDesc}\n</SCHEMA>\n\nExtract the data matching the schema from the document. Return ONLY valid JSON.`;
+
+  console.log(`[schema] model=${NANOGPT_EXTRACT_MODEL} content=${truncated.length}chars`);
 
   const t0 = performance.now();
   const res = await fetch(`${NANOGPT_BASE}/chat/completions`, {
