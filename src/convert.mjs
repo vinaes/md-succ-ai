@@ -35,6 +35,57 @@ turndown.addRule('removeSvg', {
   replacement: () => '',
 });
 
+// Smart code block handling: detect language, skip line numbers, safe fences
+turndown.addRule('fencedCodeBlock', {
+  filter: (node, options) => {
+    return (
+      options.codeBlockStyle === 'fenced' &&
+      node.nodeName === 'PRE' &&
+      node.firstChild &&
+      node.firstChild.nodeName === 'CODE'
+    );
+  },
+  replacement: (content, node) => {
+    const code = node.firstChild;
+
+    // Detect language from class names (language-*, lang-*, highlight-*)
+    const classes = (code.getAttribute('class') || '') + ' ' + (node.getAttribute('class') || '');
+    const langMatch = classes.match(/(?:language|lang|highlight)-(\w[\w+#.-]*)/i);
+    const lang = langMatch ? langMatch[1].toLowerCase() : '';
+
+    // Extract text recursively, skipping gutter/line-number elements
+    function extractCode(el) {
+      let text = '';
+      for (const child of el.childNodes || []) {
+        if (child.nodeType === 3) { // text node
+          text += child.textContent;
+        } else if (child.nodeType === 1) { // element node
+          const cls = (child.getAttribute('class') || '').toLowerCase();
+          const tag = child.tagName?.toLowerCase();
+          // Skip line numbers, gutters, and copy buttons
+          if (/\b(line-?number|gutter|ln-num|hljs-ln-n|linenumber|copy|clipboard)\b/.test(cls)) continue;
+          if (tag === 'button') continue;
+          // Recurse into children
+          text += extractCode(child);
+        }
+      }
+      return text;
+    }
+
+    let codeText = extractCode(code);
+    // Trim trailing newline that Turndown typically adds
+    codeText = codeText.replace(/\n$/, '');
+
+    // Safe fence: find the longest backtick sequence in the content,
+    // then use a fence that's at least one longer (minimum 3)
+    const backtickRuns = codeText.match(/`+/g) || [];
+    const maxLen = backtickRuns.reduce((max, run) => Math.max(max, run.length), 0);
+    const fence = '`'.repeat(Math.max(3, maxLen + 1));
+
+    return `\n\n${fence}${lang}\n${codeText}\n${fence}\n\n`;
+  },
+});
+
 // Remove image tags by default (configurable via ?images=true)
 // Also strip avatar/badge/icon images that add noise
 turndown.addRule('removeImages', {
@@ -649,6 +700,7 @@ function cleanMarkdown(markdown) {
 
 /**
  * Parse HTML with multi-pass extraction + Turndown + quality scoring
+ * For very large HTML (>500KB extracted), skips Turndown to avoid performance issues
  */
 async function htmlToMarkdown(html, url) {
   const extracted = await extractContent(html, url);
@@ -656,6 +708,13 @@ async function htmlToMarkdown(html, url) {
   let markdown;
   if (extracted.prebuiltMarkdown) {
     markdown = cleanMarkdown(extracted.prebuiltMarkdown);
+  } else if (extracted.contentHtml.length > 500_000) {
+    // HTML too large for Turndown — extract plain text to avoid hanging
+    const { document: doc } = parseHTML(`<html><body>${extracted.contentHtml}</body></html>`);
+    const text = doc.body?.textContent?.trim() || '';
+    markdown = cleanMarkdown(text);
+    extracted.method += '+text-only';
+    console.log(`[convert] HTML too large (${(extracted.contentHtml.length / 1024).toFixed(0)}KB), using text-only extraction`);
   } else {
     // Pre-process HTML: normalize spacing for better Turndown output
     const { document } = parseHTML(`<html><body>${extracted.contentHtml}</body></html>`);
