@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { cors } from 'hono/cors';
-import { convert } from './convert.mjs';
+import { convert, fetchHTML, extractSchema } from './convert.mjs';
 import { BrowserPool } from './browser-pool.mjs';
 
 const app = new Hono();
@@ -96,6 +96,40 @@ app.use('*', async (c, next) => {
 // Health check (minimal — no config/uptime leaks)
 app.get('/health', (c) => c.json({ status: 'ok' }));
 
+// LLM schema extraction: POST /extract
+app.post('/extract', async (c) => {
+  let body;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const { url: targetUrl, schema } = body || {};
+  if (!targetUrl || !schema) {
+    return c.json({ error: 'Required: url (string) and schema (object)' }, 400);
+  }
+
+  try {
+    new URL(targetUrl);
+  } catch {
+    return c.json({ error: 'Invalid URL' }, 400);
+  }
+
+  try {
+    console.log(`[extract] ${safeLog(targetUrl)}`);
+    const fetched = await fetchHTML(targetUrl);
+    if (fetched.buffer) {
+      return c.json({ error: 'Schema extraction only works with HTML pages' }, 415);
+    }
+    const result = await extractSchema(fetched.html, targetUrl, schema);
+    return c.json(result);
+  } catch (err) {
+    console.error(`[extract] ${safeLog(targetUrl)} — ${err.message}`);
+    return c.json({ error: sanitizeError(err.message), url: sanitizeUrl(targetUrl) }, 500);
+  }
+});
+
 // Main endpoint: GET /:url
 // Also handles: GET /https://example.com/path
 app.get('/*', async (c) => {
@@ -118,11 +152,21 @@ app.get('/*', async (c) => {
     return c.json(
       {
         name: 'md.succ.ai',
-        description: 'HTML to clean Markdown API',
+        description: 'HTML to clean Markdown API — with fit mode, citations, YouTube transcripts, and LLM extraction',
         usage: 'GET /https://example.com or GET /?url=https://example.com',
+        params: {
+          mode: 'fit — pruned markdown optimized for LLMs (30-50% fewer tokens)',
+          links: 'citations — numbered references with footer instead of inline links',
+          max_tokens: 'truncate fit_markdown to N tokens',
+        },
+        endpoints: {
+          'GET /': 'Convert URL to markdown',
+          'POST /extract': 'Extract structured data via LLM (body: {url, schema})',
+          'GET /health': 'Health check',
+        },
         headers: {
           'x-markdown-tokens': 'Token count in response',
-          'x-conversion-tier': 'fetch | browser',
+          'x-conversion-tier': 'fetch | browser | youtube',
           'x-conversion-time': 'Total conversion time in ms',
         },
         source: 'https://github.com/vinaes/md-succ-ai',
@@ -160,7 +204,12 @@ app.get('/*', async (c) => {
     } else {
       console.log(`[req] ${safeLog(targetUrl)}`);
       const pool = ENABLE_BROWSER ? browserPool : null;
-      result = await convert(targetUrl, pool);
+      const options = {
+        links: c.req.query('links') || undefined,
+        mode: c.req.query('mode') || undefined,
+        maxTokens: parseInt(c.req.query('max_tokens') || '0', 10) || undefined,
+      };
+      result = await convert(targetUrl, pool, options);
       setCache(cacheKey, result);
       const q = result.quality || { score: 0, grade: 'F' };
       console.log(`[ok]  ${result.tier} ${result.tokens}tok ${result.totalMs}ms ${q.grade}(${q.score}) ${result.method || 'unknown'}`);
@@ -185,7 +234,7 @@ app.get('/*', async (c) => {
 
     // JSON response
     if (accept.includes('application/json')) {
-      return c.json({
+      const json = {
         title: result.title,
         url: result.url,
         content: result.markdown,
@@ -198,7 +247,13 @@ app.get('/*', async (c) => {
         method: result.method || 'unknown',
         quality: q,
         time_ms: result.totalMs,
-      });
+      };
+      // Include fit_markdown when available
+      if (result.fit_markdown) {
+        json.fit_markdown = result.fit_markdown;
+        json.fit_tokens = result.fit_tokens;
+      }
+      return c.json(json);
     }
 
     // Default: Markdown response
