@@ -41,7 +41,8 @@ export function Hero() {
 
       <p className="text-sm sm:text-base text-muted-foreground/80 mb-12 max-w-lg text-balance leading-relaxed px-2">
         Convert any webpage or document to clean Markdown.
-        HTML, PDF, DOCX, XLSX, CSV. Built for AI agents and RAG pipelines.
+        HTML, PDF, DOCX, XLSX, CSV, YouTube transcripts. Citation links, fit mode, schema extraction.
+        Built for AI agents and RAG pipelines.
       </p>
 
       {/* Try it */}
@@ -83,12 +84,12 @@ export function Hero() {
         <span className="text-border hidden sm:inline">|</span>
         <div className="flex items-center gap-1.5">
           <Shield className="w-4 h-4 text-blue" />
-          <span className="font-mono">8-pass extraction</span>
+          <span className="font-mono">9-pass extraction</span>
         </div>
         <span className="text-border hidden sm:inline">|</span>
         <div className="flex items-center gap-1.5">
           <FileText className="w-4 h-4 text-green" />
-          <span className="font-mono">PDF / DOCX / XLSX</span>
+          <span className="font-mono">PDF / DOCX / YouTube</span>
         </div>
       </div>
     </section>
