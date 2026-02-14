@@ -217,7 +217,8 @@ npm start
 | `ENABLE_BROWSER` | `true` | Enable Playwright fallback |
 | `NODE_ENV` | `production` | Node environment |
 | `NANOGPT_API_KEY` | — | nano-gpt API key for LLM tier and /extract |
-| `NANOGPT_MODEL` | `meta-llama/llama-3.1-8b-instruct` | LLM model for extraction |
+| `NANOGPT_MODEL` | `meta-llama/llama-3.3-70b-instruct` | LLM model for content extraction (Tier 2.5) |
+| `NANOGPT_EXTRACT_MODEL` | same as `NANOGPT_MODEL` | LLM model for `/extract` endpoint (can use a larger model) |
 
 ### Nginx Reverse Proxy
 

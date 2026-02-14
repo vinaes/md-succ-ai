@@ -10,7 +10,8 @@ services:
       - ENABLE_BROWSER=true
       - NODE_ENV=production
       - NANOGPT_API_KEY=${NANOGPT_API_KEY:-}
-      - NANOGPT_MODEL=${NANOGPT_MODEL:-meta-llama/llama-3.1-8b-instruct}
+      - NANOGPT_MODEL=${NANOGPT_MODEL:-meta-llama/llama-3.3-70b-instruct}
+      - NANOGPT_EXTRACT_MODEL=${NANOGPT_EXTRACT_MODEL:-meta-llama/llama-3.3-70b-instruct}
     deploy:
       resources:
         limits:

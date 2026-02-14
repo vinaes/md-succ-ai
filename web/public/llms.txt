@@ -78,7 +78,7 @@ curl -X POST https://md.succ.ai/extract \
 2. **Document detection**: PDF, DOCX, XLSX, CSV detected by Content-Type or extension
 3. **Tier 1 (fast)**: 9-pass extraction pipeline (200-500ms) with quality ratio checks
 4. **Tier 2 (browser)**: Playwright headless Chromium for SPAs and JS-heavy sites (3-15s)
-5. **Tier 2.5 (LLM)**: nano-gpt structured extraction when quality < B
+5. **Tier 2.5 (LLM)**: Llama 3.3 70B via nano-gpt when quality < B
 
 Automatic tier escalation — no configuration needed.
 
