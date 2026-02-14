@@ -1472,6 +1472,12 @@ export async function fetchHTML(url) {
       continue;
     }
 
+    // Client/server errors — don't try to parse error pages
+    if (res.status >= 400) {
+      res.body?.cancel?.();
+      throw new Error(`HTTP ${res.status} ${res.statusText || 'Error'}`, { cause: { code: `HTTP_${res.status}` } });
+    }
+
     // Check content-type for document formats vs unsupported binary
     const contentType = (res.headers.get('content-type') || '').toLowerCase();
     const mimeType = contentType.split(';')[0].trim();
@@ -1532,7 +1538,29 @@ async function fetchWithBrowser(browserPool, url) {
 
   const page = await browserPool.newPage();
   try {
-    await page.goto(url, { waitUntil: 'networkidle', timeout: 25000 });
+    // Try networkidle first (best for static/SSR pages).
+    // If it times out (SPA with persistent connections/websockets),
+    // fall back to domcontentloaded + wait for JS hydration.
+    let navigated = false;
+    try {
+      await page.goto(url, { waitUntil: 'networkidle', timeout: 15000 });
+      navigated = true;
+    } catch {
+      // networkidle timed out — SPA with persistent connections.
+      // Retry with domcontentloaded (fires when HTML is parsed, before all resources).
+      try {
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      } catch {
+        // Already navigating from the first goto — just wait for content
+      }
+      // Give SPA time to hydrate / render
+      await page.waitForFunction(
+        () => (document.body?.innerText?.length ?? 0) > 200,
+        { timeout: 8000 },
+      ).catch(() => {});
+      navigated = true;
+    }
+    if (!navigated) throw new Error('Navigation failed');
     // Wait for meaningful body content instead of a fixed 2s delay
     await page.waitForFunction(
       () => (document.body?.innerText?.length ?? 0) > 200,
@@ -1925,6 +1953,7 @@ export async function convert(url, browserPool = null, options = {}) {
   let html;
   let fetchFailed = options.skipFetch || false;
   let fetchError = options.skipFetch ? 'skipped' : '';
+  let httpErrorStatus = 0; // Track HTTP 4xx/5xx — don't retry with browser
   let result;
 
   if (!options.skipFetch) try {
@@ -1947,6 +1976,9 @@ export async function convert(url, browserPool = null, options = {}) {
   } catch (e) {
     fetchFailed = true;
     fetchError = e.cause?.message || e.cause?.code || e.message;
+    // Extract HTTP status from our error format (HTTP_404, HTTP_500, etc.)
+    const httpMatch = fetchError.match?.(/^HTTP_(\d+)$/);
+    if (httpMatch) httpErrorStatus = parseInt(httpMatch[1], 10);
     console.error(`[convert] fetch error for ${url}:`, fetchError, e.cause);
   }
 
@@ -1964,7 +1996,9 @@ export async function convert(url, browserPool = null, options = {}) {
   // CF challenge detected via fetch — skip browser here to avoid IP rate-limit.
   // Caller (server.mjs /extract) will retry with skipFetch=true so browser is the ONLY request.
   let cfPoisoned = challengeTitle && !options.skipFetch && !options.forceBrowser;
-  const needsBrowser = !cfPoisoned && (fetchFailed || challengeTitle || options.forceBrowser ||
+  // HTTP 4xx = page doesn't exist, don't waste time with browser
+  const httpClientError = httpErrorStatus >= 400 && httpErrorStatus < 500;
+  const needsBrowser = !cfPoisoned && !httpClientError && (fetchFailed || challengeTitle || options.forceBrowser ||
     (!goodExtraction && (result?.quality?.score ?? 0) < 0.6));
   if (browserPool && needsBrowser) {
     try {

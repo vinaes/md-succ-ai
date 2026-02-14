@@ -389,7 +389,10 @@ app.get('/*', async (c) => {
     return c.body(`${header}\n${result.markdown}`);
   } catch (err) {
     console.error(`[err] ${safeLog(targetUrl)} — ${err.message}`);
-    const status = err.message?.includes('Blocked URL') ? 403
+    // Forward upstream HTTP errors (e.g. "Fetch failed: HTTP_404" → 404)
+    const upstreamMatch = err.message?.match?.(/HTTP[_ ](\d{3})/);
+    const status = upstreamMatch ? parseInt(upstreamMatch[1], 10)
+      : err.message?.includes('Blocked URL') ? 403
       : err.message?.includes('too large') ? 413
       : err.message?.includes('Unsupported content type') ? 415
       : err.message?.includes('Too many redirects') ? 502
