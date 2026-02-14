@@ -185,7 +185,7 @@ function UrlInput() {
               <span>{result.time}ms</span>
             </div>
           </div>
-          <pre className="p-4 max-h-64 overflow-y-auto overflow-x-hidden">
+          <pre className="p-4 max-h-64 overflow-y-auto overflow-x-hidden custom-scrollbar">
             <code className="text-sm font-mono text-muted-foreground whitespace-pre-wrap leading-relaxed">
               {result.markdown.slice(0, 2000)}{result.markdown.length > 2000 ? "\n\n... (truncated)" : ""}
             </code>
