@@ -1997,6 +1997,7 @@ export async function convert(url, browserPool = null, options = {}) {
         }
       }
     } catch (e) {
+      console.error(`[convert] Browser failed for ${url}: ${e.message}`);
       if (!result) {
         throw new Error(
           `All conversion methods failed. Fetch: ${fetchError || 'parse error'}. Browser: ${e.message}`,
