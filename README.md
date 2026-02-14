@@ -1,62 +1,92 @@
 <p align="center">
-  <img src="https://img.shields.io/badge/●%20md.succ.ai-3fb950?style=for-the-badge&labelColor=0d1117" alt="md.succ.ai">
-  <br/>
-  <em>html to markdown</em>
+  <img src="https://img.shields.io/badge/●%20md.succ.ai-html%20to%20markdown-3fb950?style=for-the-badge&labelColor=0d1117" alt="md.succ.ai">
   <br/><br/>
-  Clean Markdown from any URL. Fast, accurate, agent-friendly.
+  <em>Clean Markdown from any URL. Fast, accurate, agent-friendly.</em>
 </p>
 
 <p align="center">
   <a href="https://md.succ.ai/health"><img src="https://img.shields.io/badge/status-live-3fb950?style=flat-square" alt="status"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-FSL--1.1-blue?style=flat-square" alt="license"></a>
   <a href="https://hub.docker.com"><img src="https://img.shields.io/badge/docker-node%2022--slim-2496ED?style=flat-square" alt="docker"></a>
-  <img src="https://img.shields.io/badge/vulnerabilities-0-3fb950?style=flat-square" alt="0 vulnerabilities">
+  <img src="https://img.shields.io/badge/CVE-0-3fb950?style=flat-square" alt="0 vulnerabilities">
 </p>
 
 <p align="center">
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#features">Features</a> •
   <a href="#api">API</a> •
   <a href="#how-it-works">How It Works</a> •
-  <a href="#supported-formats">Formats</a> •
   <a href="#self-hosting">Self-Hosting</a> •
   <a href="#security">Security</a>
 </p>
 
 ---
 
-> Convert any webpage or document to clean, readable Markdown. Supports HTML, PDF, DOCX, XLSX, CSV, and YouTube transcripts. Citation-style links, LLM-optimized output, and structured data extraction. Redis-backed caching, multi-provider anti-bot bypass, headless browser rendering. Built for AI agents, MCP tools, and RAG pipelines. Powered by [succ](https://succ.ai).
+> Convert any webpage or document to clean, readable Markdown. Built for AI agents, MCP tools, and RAG pipelines. Powered by [succ](https://succ.ai).
 
-## API
-
-**Base URL:** `https://md.succ.ai`
-
-### Convert a URL
+## Quick Start
 
 ```bash
-# Markdown output (default)
+# Markdown output
 curl https://md.succ.ai/https://example.com
 
 # JSON output
 curl -H "Accept: application/json" https://md.succ.ai/https://example.com
 
-# Query param format
-curl https://md.succ.ai/?url=https://example.com
-
 # Documents
 curl https://md.succ.ai/https://example.com/report.pdf
-curl https://md.succ.ai/https://example.com/data.xlsx
 
 # YouTube transcript
 curl https://md.succ.ai/https://youtube.com/watch?v=dQw4w9WgXcQ
-
-# Citation-style links (numbered references)
-curl "https://md.succ.ai/?url=https://en.wikipedia.org/wiki/Markdown&links=citations"
-
-# LLM-optimized output (pruned boilerplate)
-curl "https://md.succ.ai/?url=https://htmx.org/docs/&mode=fit"
-
-# Token limit
-curl "https://md.succ.ai/?url=https://example.com&mode=fit&max_tokens=4000"
 ```
+
+> **That's it.** No API key, no signup, no SDK. Just prepend `https://md.succ.ai/` to any URL.
+
+## Features
+
+| Feature | Description |
+|---------|-------------|
+| **9-Pass Extraction** | Readability, Defuddle, Article Extractor, CSS selectors, Schema.org, Open Graph, text density, cleaned body — quality-checked at each step |
+| **6 Formats** | HTML, PDF, DOCX, XLSX, CSV, YouTube transcripts |
+| **4-Tier Pipeline** | HTTP fetch → headless browser → LLM extraction → BaaS anti-bot bypass |
+| **Quality Scoring** | Each conversion scored 0-1 with A-F grade |
+| **Citation Links** | Numbered references with footer instead of inline links |
+| **Fit Mode** | LLM-optimized output — pruned boilerplate, 30-50% fewer tokens |
+| **Structured Extraction** | `/extract` endpoint — JSON schema in, structured data out (LLM-powered) |
+| **Redis Cache** | Two-layer caching (Redis + in-memory fallback), SHA-256 hashed keys |
+| **Rate Limiting** | Atomic Redis pipeline per-IP, CF-Connecting-IP support |
+| **CF Detection** | Cloudflare challenge pages detected and handled without wasting credits |
+| **SSRF Protection** | URL validation, DNS checks, private IP blocking, redirect validation |
+
+<details>
+<summary>Supported formats</summary>
+
+| Format | Content-Type | Method |
+|--------|-------------|--------|
+| HTML | `text/html` | 9-pass extraction + Turndown |
+| PDF | `application/pdf` | Text extraction via unpdf |
+| DOCX | `application/vnd...wordprocessingml` | mammoth → HTML → Turndown |
+| XLSX/XLS | `application/vnd...spreadsheetml` | SheetJS → Markdown tables |
+| CSV | `text/csv` | SheetJS → Markdown table |
+| YouTube | `youtube.com`, `youtu.be` | Transcript extraction with timestamps |
+
+Documents are also detected by URL extension (`.pdf`, `.docx`, `.xlsx`, `.csv`) when `Content-Type` is `application/octet-stream`.
+
+</details>
+
+## API
+
+**Base URL:** `https://md.succ.ai`
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/{url}` | Convert URL to Markdown |
+| `GET` | `/?url={url}` | Same, query param format |
+| `POST` | `/extract` | Structured data extraction (JSON schema) |
+| `GET` | `/health` | Health check (includes Redis status) |
+| `GET` | `/` | API info |
 
 ### Query Parameters
 
@@ -67,7 +97,41 @@ curl "https://md.succ.ai/?url=https://example.com&mode=fit&max_tokens=4000"
 | `mode` | `fit` | Prune boilerplate sections for smaller LLM context |
 | `max_tokens` | number | Truncate output to N tokens (use with `mode=fit`) |
 
-### Structured Data Extraction
+### Response Headers
+
+| Header | Description |
+|--------|-------------|
+| `x-markdown-tokens` | Token count (cl100k_base) |
+| `x-conversion-tier` | `fetch`, `browser`, `baas:scrapfly`, `llm`, `youtube`, `document:pdf`, etc. |
+| `x-conversion-time` | Total conversion time in ms |
+| `x-extraction-method` | Extraction pass used (`readability`, `defuddle`, `browser-raw`, etc.) |
+| `x-quality-score` | Quality score 0-1 |
+| `x-quality-grade` | Quality grade A-F |
+| `x-readability` | `true` if Readability extracted clean content |
+| `x-cache` | `hit` or `miss` (Redis-backed) |
+
+<details>
+<summary>JSON response format</summary>
+
+```json
+{
+  "title": "Example Domain",
+  "url": "https://example.com",
+  "content": "# Example Domain\n\nThis domain is for use in...",
+  "excerpt": "This domain is for use in documentation examples...",
+  "tokens": 33,
+  "tier": "fetch",
+  "readability": true,
+  "method": "readability",
+  "quality": { "score": 0.85, "grade": "A" },
+  "time_ms": 245
+}
+```
+
+</details>
+
+<details>
+<summary>Structured data extraction</summary>
 
 ```bash
 curl -X POST https://md.succ.ai/extract \
@@ -96,49 +160,29 @@ curl -X POST https://md.succ.ai/extract \
 
 Returns structured JSON matching the provided schema, extracted by LLM. Automatically retries with headless browser for SPA/JS-heavy sites when initial extraction returns empty data.
 
-### Response Headers
+Rate limited: 10 requests/minute per IP.
 
-| Header | Description |
-|--------|-------------|
-| `x-markdown-tokens` | Token count (cl100k_base) |
-| `x-conversion-tier` | `fetch`, `browser`, `baas:scrapfly`, `llm`, `youtube`, `document:pdf`, etc. |
-| `x-conversion-time` | Total conversion time in ms |
-| `x-extraction-method` | Extraction pass used (`readability`, `defuddle`, `browser-raw`, etc.) |
-| `x-quality-score` | Quality score 0-1 |
-| `x-quality-grade` | Quality grade A-F |
-| `x-readability` | `true` if Readability extracted clean content |
-| `x-cache` | `hit` or `miss` (Redis-backed) |
+</details>
 
-### JSON Response
+<details>
+<summary>More examples</summary>
 
-```json
-{
-  "title": "Example Domain",
-  "url": "https://example.com",
-  "content": "# Example Domain\n\nThis domain is for use in...",
-  "excerpt": "This domain is for use in documentation examples...",
-  "tokens": 33,
-  "tier": "fetch",
-  "readability": true,
-  "method": "readability",
-  "quality": { "score": 0.85, "grade": "A" },
-  "time_ms": 245
-}
+```bash
+# Citation-style links (numbered references)
+curl "https://md.succ.ai/?url=https://en.wikipedia.org/wiki/Markdown&links=citations"
+
+# LLM-optimized output (pruned boilerplate)
+curl "https://md.succ.ai/?url=https://htmx.org/docs/&mode=fit"
+
+# Token limit
+curl "https://md.succ.ai/?url=https://example.com&mode=fit&max_tokens=4000"
 ```
 
-### Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/{url}` | Convert URL to Markdown |
-| `GET` | `/?url={url}` | Same, query param format |
-| `POST` | `/extract` | Structured data extraction (JSON schema) |
-| `GET` | `/health` | Health check (includes Redis status) |
-| `GET` | `/` | API info |
+</details>
 
 ## How It Works
 
-Multi-tier conversion pipeline with 9-pass content extraction, quality scoring, anti-bot bypass, and Redis caching:
+4-tier conversion pipeline — each tier only activates if the previous one produced insufficient quality:
 
 ```
 URL ──→ Cache hit? ──→ Return cached result (Redis, 5min/1hr TTL)
@@ -149,20 +193,11 @@ URL ──→ Cache hit? ──→ Return cached result (Redis, 5min/1hr TTL)
          │   └─→ Document converter → Markdown
          │
          ├─ Tier 1: HTTP fetch + 9-pass extraction
-         │   1. Readability (Mozilla)
-         │   2. Defuddle (Obsidian team)
-         │   3. Article Extractor
-         │   4. Readability on cleaned HTML
-         │   5. CSS content selectors
-         │   6. Schema.org / JSON-LD
-         │   7. Open Graph / meta tags
-         │   8. Text density analysis
-         │   9. Cleaned body fallback
-         │   Quality ratio check after each pass (< 15% = skip)
+         │   └─→ Readability → Defuddle → Article Extractor → CSS selectors
+         │       → Schema.org → Open Graph → Text density → Body fallback
          │
          ├─ Tier 2: Patchright headless browser (SPA/JS-heavy)
          │   └─→ Same 9-pass pipeline on rendered DOM
-         │   └─→ browser-raw fallback (light cleanup + Turndown)
          │
          ├─ Tier 2.5: LLM extraction (quality < B)
          │   └─→ nano-gpt API → content extraction
@@ -172,50 +207,42 @@ URL ──→ Cache hit? ──→ Return cached result (Redis, 5min/1hr TTL)
              └─→ Same 9-pass pipeline on returned HTML
 ```
 
-Each tier only activates if the previous one produced insufficient quality. Cloudflare challenge pages are detected automatically and trigger appropriate retry strategies. Post-processing applies citation conversion and fit_markdown pruning when requested.
+Cloudflare challenge pages are detected automatically. When fetch gets a CF challenge, browser is skipped (saves IP), and BaaS providers handle the bypass.
 
-### Caching
+<details>
+<summary>Caching</summary>
 
 Two-layer cache system backed by Redis 7:
 
 | Cache | TTL | Key | What's cached |
 |-------|-----|-----|---------------|
-| Markdown | 5 min | `cache:{hash(url+options)}` | Full conversion result |
-| Extract | 1 hr | `extract:{hash(url)}:{hash(schema)}` | LLM extraction result |
+| Markdown | 5 min | `cache:{sha256(url+options)}` | Full conversion result |
+| Extract | 1 hr | `extract:{sha256(url)}:{sha256(schema)}` | LLM extraction result |
 
 Cache keys use SHA-256 hashes to prevent poisoning via long/malicious URLs. Falls back to in-memory Map when Redis is unavailable.
 
-## Supported Formats
+</details>
 
-| Format | Content-Type | Method |
-|--------|-------------|--------|
-| HTML | `text/html` | 9-pass extraction + Turndown |
-| PDF | `application/pdf` | Text extraction via unpdf |
-| DOCX | `application/vnd...wordprocessingml` | mammoth → HTML → Turndown |
-| XLSX/XLS | `application/vnd...spreadsheetml` | SheetJS → Markdown tables |
-| CSV | `text/csv` | SheetJS → Markdown table |
-| YouTube | `youtube.com`, `youtu.be` | Transcript extraction with timestamps |
-
-Documents are also detected by URL extension (`.pdf`, `.docx`, `.xlsx`, `.csv`) when `Content-Type` is `application/octet-stream`.
-
-### Stack
+<details>
+<summary>Stack</summary>
 
 | Component | Role |
 |-----------|------|
+| [Hono](https://hono.dev) | HTTP framework |
 | [Mozilla Readability](https://github.com/mozilla/readability) | Primary content extraction |
 | [Defuddle](https://github.com/nicedoc/defuddle) | Obsidian team's content extraction |
 | [@extractus/article-extractor](https://github.com/nicedoc/extractus) | Alternative extraction heuristics |
 | [Turndown](https://github.com/mixmark-io/turndown) | HTML → Markdown conversion |
 | [linkedom](https://github.com/WebReflection/linkedom) | Lightweight DOM parser |
 | [Patchright](https://github.com/nicedoc/patchright) | Patched Chromium for anti-detection |
-| [Redis](https://redis.io) | Cache and rate limiting |
-| [ioredis](https://github.com/redis/ioredis) | Redis client for Node.js |
+| [Redis](https://redis.io) + [ioredis](https://github.com/redis/ioredis) | Cache and rate limiting |
 | [unpdf](https://github.com/unjs/unpdf) | PDF text extraction |
 | [mammoth](https://github.com/mwilliamson/mammoth.js) | DOCX → HTML conversion |
 | [SheetJS](https://sheetjs.com) | XLSX/XLS/CSV parsing |
 | [Ajv](https://ajv.js.org) | JSON Schema validation for /extract |
 | [gpt-tokenizer](https://github.com/niieani/gpt-tokenizer) | cl100k_base token counting |
-| [Hono](https://hono.dev) | HTTP framework |
+
+</details>
 
 ## Self-Hosting
 
@@ -242,9 +269,10 @@ npx patchright install chromium
 npm start
 ```
 
-Note: Redis is optional for local development. Without Redis, caching and rate limiting fall back to in-memory Map.
+> Redis is optional for local development. Without Redis, caching and rate limiting fall back to in-memory Map.
 
-### Environment Variables
+<details>
+<summary>Environment variables</summary>
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -261,7 +289,10 @@ Note: Redis is optional for local development. Without Redis, caching and rate l
 
 BaaS providers are optional. When configured, they activate as Tier 3 for Cloudflare-protected sites. Providers are tried in order; if one hits rate limits, the next is used automatically.
 
-### Nginx Reverse Proxy
+</details>
+
+<details>
+<summary>Nginx reverse proxy</summary>
 
 An example nginx config is in `nginx/md.succ.ai.conf`:
 
@@ -271,18 +302,20 @@ An example nginx config is in `nginx/md.succ.ai.conf`:
 - Dedicated `/extract` location with 64KB body limit
 - Security headers (nosniff, X-Frame-Options, Referrer-Policy)
 
+</details>
+
 ## Security
 
-- **SSRF protection**: URL validation, DNS resolution checks (IPv4 + IPv6), redirect validation per hop, Patchright route blocking
-- **Private IP blocking**: 127/8, 10/8, 172.16/12, 192.168/16, 169.254/16, CGNAT, cloud metadata hostnames, hex/octal IP formats
-- **Input limits**: 5MB response size, 5 max redirects, content-type validation, 64KB body limit on /extract
-- **Output sanitization**: Error messages stripped of internal paths/stack traces, URLs sanitized in responses
-- **Cache security**: SHA-256 hashed keys (no URL poisoning), Redis LRU eviction (128MB cap), no persistence (pure cache)
-- **API key safety**: BaaS API keys only used in outbound requests, never logged or exposed in responses
-- **LLM hardening**: Prompt injection protection (HTML sanitization, document delimiters, output validation), schema field whitelist
-- **Rate limiting**: Per-IP via Redis INCR+EXPIRE (atomic pipeline), CF-Connecting-IP support, in-memory fallback
-- **CF challenge detection**: Cloudflare challenge pages detected and handled without wasting browser/BaaS credits
-- **0 CVE**: All dependencies patched, monitored via Dependabot
+- **SSRF protection** — URL validation, DNS resolution checks (IPv4 + IPv6), redirect validation per hop, Patchright route blocking
+- **Private IP blocking** — 127/8, 10/8, 172.16/12, 192.168/16, 169.254/16, CGNAT, cloud metadata hostnames, hex/octal IP formats
+- **Input limits** — 5MB response size, 5 max redirects, content-type validation, 64KB body limit on /extract
+- **Output sanitization** — Error messages stripped of internal paths/stack traces, URLs sanitized in responses
+- **Cache security** — SHA-256 hashed keys (no URL poisoning), Redis LRU eviction (128MB cap), no persistence (pure cache)
+- **API key safety** — BaaS API keys only used in outbound requests, never logged or exposed in responses
+- **LLM hardening** — Prompt injection protection (HTML sanitization, document delimiters, output validation), schema field whitelist
+- **Rate limiting** — Per-IP via Redis INCR+EXPIRE (atomic pipeline), CF-Connecting-IP support, in-memory fallback
+- **CF challenge detection** — Cloudflare challenge pages detected and handled without wasting browser/BaaS credits
+- **0 CVE** — All dependencies patched, monitored via Dependabot
 
 ## Architecture
 
@@ -301,6 +334,6 @@ An example nginx config is in `nginx/md.succ.ai.conf`:
 
 [FSL-1.1-Apache-2.0](LICENSE) — Free for non-competitive use. Apache 2.0 after 2 years.
 
-## Credits
+---
 
 Part of the [succ](https://succ.ai) ecosystem.
