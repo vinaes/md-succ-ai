@@ -9,6 +9,9 @@ services:
       - PORT=3000
       - ENABLE_BROWSER=true
       - NODE_ENV=production
+      - DATA_DIR=/app/data
+    volumes:
+      - ./data:/app/data
     deploy:
       resources:
         limits:
