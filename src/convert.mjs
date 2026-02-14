@@ -1593,49 +1593,39 @@ async function fetchWithBrowser(browserPool, url) {
 const YOUTUBE_REGEX = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/;
 
 /**
- * Fetch YouTube transcript by scraping the watch page for captionTracks,
- * then fetching the timedtext XML. No API key or npm package needed.
+ * Fetch YouTube transcript via innertube player API (ANDROID client).
+ * The web captionTracks URLs return empty responses, but the ANDROID client works.
+ * No API key registration needed — uses the public innertube key.
  */
 async function fetchYouTubeTranscript(videoId) {
-  // Fetch the watch page
-  const watchUrl = `https://www.youtube.com/watch?v=${videoId}`;
-  const res = await fetch(watchUrl, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept-Language': 'en-US,en;q=0.9',
+  const INNERTUBE_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
+
+  // Get caption tracks via innertube player API
+  const playerRes = await fetch(
+    `https://www.youtube.com/youtubei/v1/player?key=${INNERTUBE_KEY}&prettyPrint=false`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14; en_US) gzip',
+      },
+      body: JSON.stringify({
+        context: { client: { clientName: 'ANDROID', clientVersion: '20.10.38', hl: 'en' } },
+        videoId,
+      }),
+      signal: AbortSignal.timeout(15000),
     },
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!res.ok) throw new Error(`YouTube returned ${res.status}`);
-  const html = await res.text();
+  );
+  if (!playerRes.ok) throw new Error(`Innertube player returned ${playerRes.status}`);
+  const playerData = await playerRes.json();
 
-  // Extract captionTracks JSON array using bracket counting
-  // (regex .*? fails because tracks contain nested objects)
-  const ctIdx = html.indexOf('"captionTracks"');
-  if (ctIdx === -1) throw new Error('No caption tracks found');
-  const arrStart = html.indexOf('[', ctIdx);
-  if (arrStart === -1 || arrStart > ctIdx + 50) throw new Error('Malformed captionTracks');
-  let depth = 0;
-  let arrEnd = -1;
-  for (let i = arrStart; i < html.length && i < arrStart + 10000; i++) {
-    if (html[i] === '[') depth++;
-    else if (html[i] === ']') { depth--; if (depth === 0) { arrEnd = i + 1; break; } }
-  }
-  if (arrEnd === -1) throw new Error('Could not find captionTracks end');
+  const tracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+  if (!tracks?.length) throw new Error('No caption tracks found');
 
-  let tracks;
-  try {
-    tracks = JSON.parse(html.slice(arrStart, arrEnd));
-  } catch {
-    throw new Error('Failed to parse caption tracks');
-  }
-  if (!tracks?.length) throw new Error('Empty caption tracks');
-
-  // Prefer English, fall back to first track (often auto-generated)
+  // Prefer English, fall back to first track
   const track = tracks.find((t) => t.languageCode === 'en')
     || tracks.find((t) => t.languageCode?.startsWith('en'))
     || tracks[0];
-
   if (!track?.baseUrl) throw new Error('No caption URL found');
 
   // Fetch the timedtext XML
@@ -1643,13 +1633,15 @@ async function fetchYouTubeTranscript(videoId) {
   if (!xmlRes.ok) throw new Error(`Timedtext returned ${xmlRes.status}`);
   const xml = await xmlRes.text();
 
-  // Parse XML: <text start="1.23" dur="4.56">caption text</text>
+  // Parse XML — supports both formats:
+  // Format 3 (ANDROID): <p t="1360" d="1680">text</p>
+  // Legacy: <text start="1.23" dur="4.56">text</text>
   const segments = [];
+  const pRegex = /<p\s+t="(\d+)"\s+d="(\d+)"[^>]*>([\s\S]*?)<\/p>/g;
   const textRegex = /<text\s+start="([^"]*)"(?:\s+dur="([^"]*)")?\s*>([\s\S]*?)<\/text>/g;
-  let m;
-  while ((m = textRegex.exec(xml)) !== null) {
-    const startSec = parseFloat(m[1]) || 0;
-    const text = m[3]
+
+  function decodeEntities(str) {
+    return str
       .replace(/&amp;/g, '&')
       .replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>')
@@ -1657,10 +1649,25 @@ async function fetchYouTubeTranscript(videoId) {
       .replace(/&#39;/g, "'")
       .replace(/<[^>]+>/g, '')
       .trim();
-    if (text) {
-      segments.push({ offset: Math.round(startSec * 1000), text });
+  }
+
+  // Try format 3 first (<p> tags)
+  let m;
+  while ((m = pRegex.exec(xml)) !== null) {
+    const offsetMs = parseInt(m[1], 10) || 0;
+    const text = decodeEntities(m[3]);
+    if (text) segments.push({ offset: offsetMs, text });
+  }
+
+  // Fall back to legacy <text> format
+  if (!segments.length) {
+    while ((m = textRegex.exec(xml)) !== null) {
+      const startSec = parseFloat(m[1]) || 0;
+      const text = decodeEntities(m[3]);
+      if (text) segments.push({ offset: Math.round(startSec * 1000), text });
     }
   }
+
   return segments;
 }
 
