@@ -10,6 +10,41 @@ const browserPool = new BrowserPool();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const ENABLE_BROWSER = process.env.ENABLE_BROWSER !== 'false';
 
+// ─── In-memory result cache (anti-amplification) ──────────────────────
+const cache = new Map();
+const CACHE_TTL = 5 * 60 * 1000;  // 5 minutes
+const CACHE_MAX = 200;             // ~200 entries, realistic ~10-50MB
+
+function getCached(url) {
+  const entry = cache.get(url);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > CACHE_TTL) {
+    cache.delete(url);
+    return null;
+  }
+  return entry.result;
+}
+
+function setCache(url, result) {
+  if (cache.size >= CACHE_MAX) {
+    const oldest = cache.keys().next().value;
+    cache.delete(oldest);
+  }
+  cache.set(url, { result, ts: Date.now() });
+}
+
+/**
+ * Strip internal paths and stack traces from error messages
+ */
+function sanitizeError(msg) {
+  if (!msg) return 'Conversion failed';
+  return msg
+    .replace(/\/app\/[^\s,)]+/g, '[internal]')
+    .replace(/[A-Z]:\\[^\s,)]+/g, '[internal]')
+    .replace(/\s*at\s+.+\(.*:\d+:\d+\)/g, '')
+    .trim() || 'Conversion failed';
+}
+
 // CORS — allow all origins (public API)
 app.use('*', cors());
 
@@ -67,11 +102,24 @@ app.get('/*', async (c) => {
   }
 
   try {
-    console.log(`[req] ${targetUrl}`);
-    const pool = ENABLE_BROWSER ? browserPool : null;
-    const result = await convert(targetUrl, pool);
+    // Check cache first (anti-amplification)
+    const cached = getCached(targetUrl);
+    const isCacheHit = !!cached;
+    let result;
+
+    if (cached) {
+      result = cached;
+      console.log(`[hit] ${targetUrl} ${result.tokens}tok`);
+    } else {
+      console.log(`[req] ${targetUrl}`);
+      const pool = ENABLE_BROWSER ? browserPool : null;
+      result = await convert(targetUrl, pool);
+      setCache(targetUrl, result);
+      const q = result.quality || { score: 0, grade: 'F' };
+      console.log(`[ok]  ${result.tier} ${result.tokens}tok ${result.totalMs}ms ${q.grade}(${q.score}) ${result.method || 'unknown'}`);
+    }
+
     const q = result.quality || { score: 0, grade: 'F' };
-    console.log(`[ok]  ${result.tier} ${result.tokens}tok ${result.totalMs}ms ${q.grade}(${q.score}) ${result.method || 'unknown'}`);
 
     // Response format based on Accept header
     const accept = c.req.header('accept') || '';
@@ -84,6 +132,7 @@ app.get('/*', async (c) => {
     c.header('x-extraction-method', result.method || 'unknown');
     c.header('x-quality-score', String(q.score));
     c.header('x-quality-grade', q.grade);
+    c.header('x-cache', isCacheHit ? 'hit' : 'miss');
     c.header('vary', 'accept');
     c.header('cache-control', 'public, max-age=300');
 
@@ -122,9 +171,12 @@ app.get('/*', async (c) => {
     return c.body(`${header}\n${result.markdown}`);
   } catch (err) {
     console.error(`[err] ${targetUrl} — ${err.message}`);
+    const status = err.message?.includes('Blocked URL') ? 403
+      : err.message?.includes('too large') ? 413
+      : 500;
     return c.json(
-      { error: err.message || 'Conversion failed', url: targetUrl },
-      500,
+      { error: sanitizeError(err.message), url: targetUrl },
+      status,
     );
   }
 });
