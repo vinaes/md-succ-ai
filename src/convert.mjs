@@ -12,6 +12,25 @@ const turndown = new TurndownService({
   bulletListMarker: '-',
 });
 
+// Treat <div> as block element — add line breaks around content.
+// By default Turndown treats unknown elements as inline (no \n),
+// which causes card layouts and flex containers to merge into one line.
+turndown.addRule('blockDiv', {
+  filter: 'div',
+  replacement: (content) => {
+    const trimmed = content.trim();
+    if (!trimmed) return '';
+    return '\n' + trimmed + '\n';
+  },
+});
+
+// Remove SVG elements — they produce empty/broken text in markdown.
+// Icon SVGs between text elements cause visual separation to disappear.
+turndown.addRule('removeSvg', {
+  filter: 'svg',
+  replacement: () => '',
+});
+
 // Remove image tags by default (configurable via ?images=true)
 turndown.addRule('removeImages', {
   filter: 'img',
@@ -424,14 +443,124 @@ function scoreMarkdown(markdown) {
   return { score: clamped, grade };
 }
 
+// ─── HTML pre-processing & markdown post-processing ───────────────────
+
+const INLINE_TAGS = new Set([
+  'span', 'a', 'button', 'time', 'label', 'small', 'strong', 'em', 'b', 'i',
+  'code', 'abbr', 'cite', 'mark', 'sub', 'sup',
+]);
+
+/**
+ * Normalize spacing in DOM before Turndown conversion.
+ * Injects whitespace where CSS flexbox/grid would have provided visual separation.
+ */
+function normalizeSpacing(document) {
+  // 1. Walk each element's children and insert spaces between adjacent inline
+  //    elements that have no visible text between them. Skips comment nodes
+  //    (Vue/React template markers like <!--[--><!--]-->) which sit between
+  //    sibling elements but provide no visual separation.
+  const allParents = document.querySelectorAll('*');
+  for (const parent of allParents) {
+    const children = Array.from(parent.childNodes);
+    for (let i = 0; i < children.length - 1; i++) {
+      const current = children[i];
+      if (current.nodeType !== 1) continue; // skip non-elements
+      const currentTag = current.tagName?.toLowerCase();
+      if (!INLINE_TAGS.has(currentTag)) continue;
+
+      // Find next meaningful sibling (skip comments and empty text)
+      let nextEl = null;
+      let insertBefore = null;
+      for (let j = i + 1; j < children.length; j++) {
+        const sib = children[j];
+        if (sib.nodeType === 8) continue; // skip comment nodes
+        if (sib.nodeType === 3) {
+          // text node — if it has visible content, no space needed
+          if (sib.textContent.trim()) break;
+          continue; // skip empty/whitespace-only text
+        }
+        if (sib.nodeType === 1) {
+          nextEl = sib;
+          insertBefore = sib;
+          break;
+        }
+      }
+
+      if (nextEl) {
+        const nextTag = nextEl.tagName?.toLowerCase();
+        if (INLINE_TAGS.has(nextTag) || nextTag === 'div' || nextTag === 'svg') {
+          const space = document.createTextNode(' ');
+          parent.insertBefore(space, insertBefore);
+        }
+      }
+    }
+  }
+
+  // 2. Insert <hr> between repeating card-like siblings (same class pattern).
+  //    Detects repeating elements like .topic, .card, .item, .post, .video-card
+  const CARD_PATTERNS = /\b(topic|card|item|post|entry|video|product|result|listing)\b/i;
+  const containers = document.querySelectorAll('[class]');
+  const processed = new Set();
+
+  for (const container of containers) {
+    if (processed.has(container)) continue;
+    const children = Array.from(container.children || []);
+    if (children.length < 2) continue;
+
+    // Check if multiple children share the same card-like class pattern
+    const cardChildren = children.filter((c) => {
+      const cls = c.getAttribute?.('class') || '';
+      return CARD_PATTERNS.test(cls);
+    });
+
+    if (cardChildren.length >= 2) {
+      // Insert <hr> between consecutive card children
+      for (let i = 1; i < cardChildren.length; i++) {
+        const hr = document.createElement('hr');
+        container.insertBefore(hr, cardChildren[i]);
+      }
+      processed.add(container);
+    }
+  }
+
+  return document;
+}
+
+/**
+ * Clean up common markdown artifacts after Turndown conversion.
+ */
+function cleanMarkdown(markdown) {
+  return markdown
+    // Collapse 3+ consecutive blank lines → 2
+    .replace(/\n{3,}/g, '\n\n')
+    // Remove lines with only whitespace
+    .replace(/^\s+$/gm, '')
+    // Trim trailing whitespace on each line
+    .replace(/[ \t]+$/gm, '')
+    // Remove orphaned markdown fragments (bare brackets on their own line)
+    .replace(/^\s*[\[\]]\s*$/gm, '')
+    // Collapse resulting multiple blank lines again
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 /**
  * Parse HTML with multi-pass extraction + Turndown + quality scoring
  */
 function htmlToMarkdown(html, url) {
   const extracted = extractContent(html, url);
 
-  // Schema.org and OpenGraph may provide pre-built markdown
-  const markdown = extracted.prebuiltMarkdown || turndown.turndown(extracted.contentHtml);
+  let markdown;
+  if (extracted.prebuiltMarkdown) {
+    markdown = cleanMarkdown(extracted.prebuiltMarkdown);
+  } else {
+    // Pre-process HTML: normalize spacing for better Turndown output
+    const { document } = parseHTML(`<html><body>${extracted.contentHtml}</body></html>`);
+    normalizeSpacing(document);
+    const normalizedHtml = document.body?.innerHTML || extracted.contentHtml;
+    markdown = cleanMarkdown(turndown.turndown(normalizedHtml));
+  }
+
   const tokens = countTokens(markdown);
   const quality = scoreMarkdown(markdown);
 
