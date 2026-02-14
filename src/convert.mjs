@@ -1928,6 +1928,24 @@ export async function convert(url, browserPool = null, options = {}) {
       // Use browser result if it's better than fetch result
       if (!result || browserResult.quality.score > result.quality.score) {
         result = browserResult;
+      } else if (options.forceBrowser) {
+        // forceBrowser: smart extraction may miss dynamic content (e.g. GitHub trending).
+        // Fall back to raw Turndown on <main>/<body> which preserves all visible text.
+        const { document: bDoc } = parseHTML(html);
+        cleanHTML(bDoc);
+        const main = bDoc.querySelector('main, [role="main"], .application-main') || bDoc.body;
+        if (main) {
+          const rawMd = cleanMarkdown(turndown.turndown(main.innerHTML));
+          if (rawMd.length > (result?.markdown?.length ?? 0) * 1.5) {
+            result = {
+              ...result,
+              markdown: rawMd,
+              tokens: countTokens(rawMd),
+              method: 'browser-raw',
+              quality: scoreMarkdown(rawMd),
+            };
+          }
+        }
       }
     } catch (e) {
       if (!result) {
