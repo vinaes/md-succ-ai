@@ -1766,15 +1766,16 @@ export async function extractSchema(html, url, schema) {
     jsonSchema = { type: 'object', properties };
   }
 
-  // Prepare HTML (reuse existing sanitization)
+  // Convert HTML to Markdown for better LLM comprehension
   const { document } = parseHTML(html);
   cleanHTML(document);
   let cleanedHtml = document.body?.innerHTML || '';
   cleanedHtml = cleanedHtml.replace(/<!--[\s\S]*?-->/g, '');
+  const markdown = cleanMarkdown(turndown.turndown(cleanedHtml));
 
   // Truncate to fit context
-  let truncated = cleanedHtml.length > MAX_HTML_FOR_LLM
-    ? cleanedHtml.slice(0, MAX_HTML_FOR_LLM) : cleanedHtml;
+  let truncated = markdown.length > MAX_HTML_FOR_LLM
+    ? markdown.slice(0, MAX_HTML_FOR_LLM) : markdown;
   const lastChar = truncated.charCodeAt(truncated.length - 1);
   if (lastChar >= 0xD800 && lastChar <= 0xDBFF) truncated = truncated.slice(0, -1);
 
