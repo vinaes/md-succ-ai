@@ -725,6 +725,98 @@ async function tryExternalJina(url) {
   }
 }
 
+// ─── LLM extraction (Tier 2.5) ────────────────────────────────────────
+
+const NANOGPT_API_KEY = process.env.NANOGPT_API_KEY || '';
+const NANOGPT_MODEL = process.env.NANOGPT_MODEL || 'meta-llama/llama-3.1-8b-instruct';
+const NANOGPT_BASE = process.env.NANOGPT_BASE || 'https://nano-gpt.com/api/v1';
+const MAX_HTML_FOR_LLM = 48_000; // ~12K tokens
+
+const LLM_SYSTEM_PROMPT = `Extract the main content from this HTML page as clean Markdown.
+Rules:
+- Return ONLY the article/page content as Markdown
+- Remove navigation, headers, footers, sidebars, ads, cookie banners, popups
+- Preserve headings (# ## ###), paragraphs, links, lists, code blocks, tables
+- Keep the original language of the content
+- Do not add commentary, explanations, or wrap in code fences
+- If the page has no meaningful content, return exactly: NO_CONTENT`;
+
+/**
+ * LLM-based content extraction via nano-gpt (OpenAI-compatible)
+ * Tier 2.5: better than regex, cheaper than external APIs
+ */
+async function tryLLMExtraction(html, url) {
+  if (!NANOGPT_API_KEY) return null;
+
+  try {
+    const t0 = performance.now();
+
+    // Sanitize HTML: parse DOM, strip junk, use clean body (anti prompt-injection)
+    const { document } = parseHTML(html);
+    const title = document.title || '';
+    cleanHTML(document);
+    const cleanedHtml = document.body?.innerHTML || '';
+    if (cleanedHtml.length < 100) return null;
+
+    // Truncate to fit model context, avoid splitting surrogate pairs
+    let truncated = cleanedHtml.length > MAX_HTML_FOR_LLM
+      ? cleanedHtml.slice(0, MAX_HTML_FOR_LLM) : cleanedHtml;
+    const lastChar = truncated.charCodeAt(truncated.length - 1);
+    if (lastChar >= 0xD800 && lastChar <= 0xDBFF) truncated = truncated.slice(0, -1);
+
+    const res = await fetch(`${NANOGPT_BASE}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${NANOGPT_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: NANOGPT_MODEL,
+        messages: [
+          { role: 'system', content: LLM_SYSTEM_PROMPT },
+          { role: 'user', content: truncated },
+        ],
+        max_tokens: 4096,
+        temperature: 0,
+      }),
+      signal: AbortSignal.timeout(20000),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.error(`[llm] ${NANOGPT_MODEL} HTTP ${res.status}: ${body.slice(0, 200)}`);
+      return null;
+    }
+
+    const json = await res.json().catch(() => null);
+    const markdown = json?.choices?.[0]?.message?.content?.trim();
+    if (!markdown || markdown.length < 50 || markdown === 'NO_CONTENT') return null;
+
+    const tokens = countTokens(markdown);
+    const quality = scoreMarkdown(markdown);
+
+    const ms = Math.round(performance.now() - t0);
+    const model = NANOGPT_MODEL.split('/').pop();
+    console.log(`[llm] ${model} ${tokens}tok ${ms}ms ${quality.grade}(${quality.score})`);
+
+    return {
+      title,
+      markdown,
+      tokens,
+      readability: false,
+      excerpt: '',
+      byline: '',
+      siteName: '',
+      htmlLength: html.length,
+      method: `llm:${model}`,
+      quality,
+    };
+  } catch (e) {
+    console.error(`[llm] ${NANOGPT_MODEL} failed:`, e.message);
+    return null;
+  }
+}
+
 // ─── Security ─────────────────────────────────────────────────────────
 
 const MAX_RESPONSE_SIZE = 5 * 1024 * 1024; // 5MB
@@ -989,6 +1081,19 @@ export async function convert(url, browserPool = null) {
 
   if (!result) {
     throw new Error('Conversion produced no result');
+  }
+
+  // Tier 2.5: LLM extraction when quality < B and we have HTML
+  if (html && (result?.quality?.score ?? 0) < 0.6) {
+    try {
+      const llmResult = await tryLLMExtraction(html, url);
+      if (llmResult && llmResult.quality.score > (result?.quality?.score ?? 0)) {
+        result = llmResult;
+        tier = 'llm';
+      }
+    } catch (e) {
+      console.error(`[convert] LLM extraction failed: ${e.message}`);
+    }
   }
 
   // Tier 3: External API fallback when quality < C
