@@ -174,10 +174,19 @@ app.post('/extract', async (c) => {
     const converted = await convert(targetUrl, pool);
     let result = await extractSchema(converted.markdown, targetUrl, schema);
 
-    // Retry with Playwright if LLM returned mostly empty data (SPA likely)
-    if (pool && !converted.tier?.includes('browser') && isExtractEmpty(result)) {
-      console.log(`[extract] empty result from ${converted.tier}, retrying with browser`);
-      const browserConverted = await convert(targetUrl, pool, { forceBrowser: true });
+    // Retry with Playwright if LLM returned mostly empty data (SPA / CF challenge)
+    if (pool && isExtractEmpty(result)) {
+      const retryOpts = { forceBrowser: true };
+      // CF challenge: fetch poisoned the IP, skip it so browser is the ONLY request
+      if (converted.cfChallenge) {
+        retryOpts.skipFetch = true;
+      }
+      // Already tried browser but still empty (SPA content not in smart extraction) — use skipFetch + forceBrowser for raw fallback
+      if (converted.tier?.includes('browser')) {
+        retryOpts.skipFetch = true;
+      }
+      console.log(`[extract] empty result from ${converted.tier}${converted.cfChallenge ? ' (CF challenge)' : ''}, retrying with browser${retryOpts.skipFetch ? ' (skipFetch)' : ''}`);
+      const browserConverted = await convert(targetUrl, pool, retryOpts);
       if (browserConverted.markdown.length > converted.markdown.length) {
         result = await extractSchema(browserConverted.markdown, targetUrl, schema);
       }
