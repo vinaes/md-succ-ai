@@ -1634,8 +1634,14 @@ async function fetchYouTubeTranscript(videoId) {
     || tracks[0];
   if (!track?.baseUrl) throw new Error('No caption URL found');
 
+  // SSRF guard: only allow YouTube timedtext URLs
+  const captionUrl = new URL(track.baseUrl);
+  if (captionUrl.hostname !== 'www.youtube.com' && captionUrl.hostname !== 'youtube.com') {
+    throw new Error(`Unexpected caption host: ${captionUrl.hostname}`);
+  }
+
   // Fetch the timedtext XML
-  const xmlRes = await fetch(track.baseUrl, { signal: AbortSignal.timeout(10000) });
+  const xmlRes = await fetch(track.baseUrl, { signal: AbortSignal.timeout(10000), redirect: 'manual' });
   if (!xmlRes.ok) throw new Error(`Timedtext returned ${xmlRes.status}`);
   const xml = await xmlRes.text();
 
@@ -1684,8 +1690,8 @@ async function fetchYouTubeTranscript(videoId) {
 async function fetchYouTubeTitle(videoId) {
   try {
     const oEmbed = await fetch(
-      `https://www.youtube.com/oembed?url=https://youtube.com/watch?v=${videoId}&format=json`,
-      { signal: AbortSignal.timeout(5000) },
+      `https://www.youtube.com/oembed?url=${encodeURIComponent(`https://youtube.com/watch?v=${videoId}`)}&format=json`,
+      { signal: AbortSignal.timeout(5000), redirect: 'manual' },
     );
     if (oEmbed.ok) {
       const data = await oEmbed.json();
@@ -1763,7 +1769,12 @@ async function tryYouTube(url) {
 
 // ─── LLM schema extraction ───────────────────────────────────────────
 
-const ajv = new Ajv({ allErrors: true, coerceTypes: true });
+// Allowed JSON Schema property-level fields (whitelist against prompt injection)
+const ALLOWED_PROPERTY_FIELDS = new Set(['type', 'items', 'enum', 'format', 'minimum', 'maximum', 'minLength', 'maxLength']);
+// Dangerous top-level schema keywords that can cause DoS or unexpected behavior
+const BLOCKED_SCHEMA_KEYWORDS = new Set(['$ref', '$id', '$defs', 'definitions', 'patternProperties',
+  'additionalProperties', 'if', 'then', 'else', 'oneOf', 'anyOf', 'allOf', 'not', 'pattern',
+  'dependencies', 'dependentSchemas', 'dependentRequired', '$anchor', '$dynamicRef']);
 
 const SCHEMA_SYSTEM_PROMPT = `You are a data extractor. Extract structured data from HTML content.
 
@@ -1801,19 +1812,38 @@ export async function extractSchema(html, url, schema) {
     }
   }
 
-  // Normalize simple schema {field: "type"} → JSON Schema
+  // Sanitize schema property values — only allow safe JSON Schema fields
+  function sanitizePropertyDef(val) {
+    if (typeof val === 'string') return { type: val };
+    if (typeof val !== 'object' || !val) return { type: 'string' };
+    const clean = {};
+    for (const [k, v] of Object.entries(val)) {
+      if (ALLOWED_PROPERTY_FIELDS.has(k)) clean[k] = v;
+    }
+    return Object.keys(clean).length ? clean : { type: 'string' };
+  }
+
+  // Normalize schema → safe JSON Schema (strip dangerous keywords)
   let jsonSchema;
   if (schema.type === 'object' && schema.properties) {
-    jsonSchema = schema; // already JSON Schema
+    // Check for dangerous keywords
+    for (const kw of Object.keys(schema)) {
+      if (BLOCKED_SCHEMA_KEYWORDS.has(kw)) {
+        throw new Error(`Unsupported schema keyword: ${kw}`);
+      }
+    }
+    // Sanitize each property definition
+    const safeProps = {};
+    for (const [key, val] of Object.entries(schema.properties)) {
+      safeProps[key] = sanitizePropertyDef(val);
+    }
+    jsonSchema = { type: 'object', properties: safeProps };
+    if (Array.isArray(schema.required)) jsonSchema.required = schema.required;
   } else {
     // Simple format: {title: "string", price: "number"} → JSON Schema
     const properties = {};
     for (const [key, val] of Object.entries(schema)) {
-      if (typeof val === 'string') {
-        properties[key] = { type: val };
-      } else if (typeof val === 'object') {
-        properties[key] = val;
-      }
+      properties[key] = sanitizePropertyDef(val);
     }
     jsonSchema = { type: 'object', properties };
   }
@@ -1854,7 +1884,8 @@ export async function extractSchema(html, url, schema) {
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`LLM API error: ${res.status} ${body.slice(0, 200)}`);
+    console.error(`[schema] LLM API error: ${res.status} ${body.slice(0, 500)}`);
+    throw new Error('LLM extraction failed');
   }
 
   const json = await res.json().catch(() => null);
@@ -1875,8 +1906,9 @@ export async function extractSchema(html, url, schema) {
     throw new Error(`LLM returned invalid JSON: ${output.slice(0, 200)}`);
   }
 
-  // Validate against schema
-  const validate = ajv.compile(jsonSchema);
+  // Validate against schema (disposable AJV instance — no cache leak from user schemas)
+  const localAjv = new Ajv({ allErrors: true, coerceTypes: false });
+  const validate = localAjv.compile(jsonSchema);
   const valid = validate(data);
 
   const ms = Math.round(performance.now() - t0);
