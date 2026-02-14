@@ -1,6 +1,6 @@
 FROM node:22-slim
 
-# Install CA certs + Playwright system dependencies for Chromium
+# Install CA certs + Patchright/Chromium system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libnss3 \
@@ -26,7 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Non-root user for security (create early so Playwright installs to correct home)
+# Non-root user for security (create early so Patchright installs to correct home)
 RUN groupadd -r mduser && useradd -r -g mduser -G audio,video mduser \
     && mkdir -p /home/mduser && chown -R mduser:mduser /home/mduser /app
 
@@ -36,7 +36,7 @@ RUN npm ci --omit=dev && chown -R mduser:mduser /app
 
 # Install Chromium as mduser so browser lands in /home/mduser/.cache/
 USER mduser
-RUN npx playwright install chromium
+RUN npx patchright install chromium
 
 # Copy source code
 COPY --chown=mduser:mduser src/ ./src/

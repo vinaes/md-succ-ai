@@ -1288,7 +1288,7 @@ async function fetchHTML(url) {
 }
 
 /**
- * Fetch HTML via Playwright headless browser
+ * Fetch HTML via Patchright headless browser
  */
 async function fetchWithBrowser(browserPool, url) {
   if (isBlockedUrl(url)) throw new Error('Blocked URL: private or internal address');
@@ -1313,7 +1313,7 @@ async function fetchWithBrowser(browserPool, url) {
 
 /**
  * Full conversion pipeline: fetch → multi-pass extraction → turndown → tokens → quality
- * With Playwright fallback for SPA sites
+ * With Patchright browser fallback for SPA sites
  */
 export async function convert(url, browserPool = null) {
   const t0 = performance.now();
@@ -1356,7 +1356,7 @@ export async function convert(url, browserPool = null) {
     }
   }
 
-  // Tier 2: Playwright fallback if fetch failed or extraction quality is low
+  // Tier 2: Patchright browser fallback if fetch failed or extraction quality is low
   const goodExtraction = result?.readability || result?.method === 'readability-cleaned' || result?.method === 'article-extractor';
   const needsBrowser = fetchFailed ||
     (!goodExtraction && (result?.quality?.score ?? 0) < 0.6);
