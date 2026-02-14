@@ -97,7 +97,31 @@ app.use('*', async (c, next) => {
 app.get('/health', (c) => c.json({ status: 'ok' }));
 
 // LLM schema extraction: POST /extract
+// Rate-limited: max 10 requests per minute per IP (LLM calls are expensive)
+const extractLimiter = new Map(); // ip → {count, resetAt}
+const EXTRACT_RATE_LIMIT = 10;
+const EXTRACT_RATE_WINDOW = 60_000;
+
 app.post('/extract', async (c) => {
+  // Rate limiting per IP
+  const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+  const now = Date.now();
+  const limiter = extractLimiter.get(ip);
+  if (limiter && now < limiter.resetAt) {
+    if (limiter.count >= EXTRACT_RATE_LIMIT) {
+      return c.json({ error: 'Rate limited: max 10 extract requests per minute' }, 429);
+    }
+    limiter.count++;
+  } else {
+    extractLimiter.set(ip, { count: 1, resetAt: now + EXTRACT_RATE_WINDOW });
+  }
+  // Cleanup old entries periodically
+  if (extractLimiter.size > 1000) {
+    for (const [k, v] of extractLimiter) {
+      if (now > v.resetAt) extractLimiter.delete(k);
+    }
+  }
+
   let body;
   try {
     body = await c.req.json();
@@ -108,6 +132,9 @@ app.post('/extract', async (c) => {
   const { url: targetUrl, schema } = body || {};
   if (!targetUrl || !schema) {
     return c.json({ error: 'Required: url (string) and schema (object)' }, 400);
+  }
+  if (typeof schema !== 'object' || Array.isArray(schema)) {
+    return c.json({ error: 'Schema must be a JSON object' }, 400);
   }
 
   try {
@@ -126,7 +153,8 @@ app.post('/extract', async (c) => {
     return c.json(result);
   } catch (err) {
     console.error(`[extract] ${safeLog(targetUrl)} — ${err.message}`);
-    return c.json({ error: sanitizeError(err.message), url: sanitizeUrl(targetUrl) }, 500);
+    const status = err.message?.includes('Invalid schema') || err.message?.includes('must be') ? 400 : 500;
+    return c.json({ error: sanitizeError(err.message), url: sanitizeUrl(targetUrl) }, status);
   }
 });
 
