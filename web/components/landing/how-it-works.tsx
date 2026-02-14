@@ -83,6 +83,8 @@ examples without needing permission.
   "tokens": 33,
   "tier": "fetch",
   "readability": true,
+  "method": "readability",
+  "quality": { "score": 0.85, "grade": "A" },
   "time_ms": 245,
   "excerpt": "This domain is for use in...",
   "byline": "",
@@ -94,7 +96,7 @@ examples without needing permission.
 
 export function HowItWorks() {
   return (
-    <section id="api" className="px-6 py-32 bg-card/50 scroll-mt-20 min-h-screen flex items-center">
+    <section id="api" className="px-4 sm:px-6 py-20 sm:py-32 bg-card/50 scroll-mt-20 min-h-screen flex items-center">
       <div className="max-w-4xl mx-auto">
         <div className="text-center mb-16">
           <p className="text-sm font-mono text-green mb-3 tracking-wide uppercase">API</p>

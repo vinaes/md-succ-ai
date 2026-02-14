@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [20, 22]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Security audit
+        run: npm audit --audit-level=high --omit=dev
+
+      - name: Verify imports
+        run: node -e "import('./src/convert.mjs').then(() => console.log('OK'))"
+
+      - name: Verify server starts
+        run: |
+          node src/server.mjs &
+          SERVER_PID=$!
+          sleep 3
+          curl -sf http://localhost:3000/health | grep -q '"ok"'
+          echo "Server health check passed"
+          kill $SERVER_PID
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t md-succ-ai:test .
+
+      - name: Test Docker container
+        run: |
+          docker run -d --name md-test -p 3000:3000 -e ENABLE_BROWSER=false md-succ-ai:test
+          sleep 3
+          curl -sf http://localhost:3000/health | grep -q '"ok"'
+          docker stop md-test
+          echo "Docker container health check passed"
