@@ -43,7 +43,7 @@ export function Pipeline() {
  │  └─ Same 9-pass on rendered DOM
  │
  └─ Tier 2.5: LLM extraction
-    └─ nano-gpt structured extract
+    └─ Llama 3.3 70B via nano-gpt
 
 Post-processing:
  ├─ `}<span className="text-blue">?links=citations</span>{` → numbered references
