@@ -30,8 +30,7 @@
     "patchright": "^1.50.0",
     "turndown": "^7.2.0",
     "unpdf": "^1.4.0",
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
-    "youtube-transcript": "^1.2.1"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "engines": {
     "node": ">=20"
