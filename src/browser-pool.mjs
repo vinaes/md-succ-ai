@@ -105,7 +105,19 @@ export class BrowserPool {
   }
 
   async _connectRemote() {
-    return chromium.connect(this.wsEndpoint);
+    // Discover the full WS endpoint (with GUID) from the sidecar health endpoint
+    const healthUrl = this.wsEndpoint
+      .replace('ws://', 'http://')
+      .replace('wss://', 'https://')
+      .replace(/:\d+.*$/, ':9223/health');
+    const res = await fetch(healthUrl);
+    if (!res.ok) throw new Error(`Browser sidecar health check failed: ${res.status}`);
+    const { wsEndpoint } = await res.json();
+    if (!wsEndpoint) throw new Error('Browser sidecar returned no wsEndpoint');
+    // Replace 0.0.0.0 with the actual sidecar hostname
+    const host = new URL(this.wsEndpoint.replace('ws://', 'http://')).hostname;
+    const actualWs = wsEndpoint.replace('0.0.0.0', host);
+    return chromium.connect(actualWs);
   }
 
   async newPage() {

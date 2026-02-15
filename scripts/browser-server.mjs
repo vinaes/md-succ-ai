@@ -51,8 +51,11 @@ async function launchServer() {
 createServer((req, res) => {
   if (req.url === '/health') {
     const ok = server !== null;
-    res.writeHead(ok ? 200 : 503);
-    res.end(ok ? 'ok' : 'not ready');
+    res.writeHead(ok ? 200 : 503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      status: ok ? 'ok' : 'not ready',
+      ...(ok && { wsEndpoint: server.wsEndpoint() }),
+    }));
   } else {
     res.writeHead(404);
     res.end();
