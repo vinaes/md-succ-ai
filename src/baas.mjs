@@ -7,6 +7,7 @@
  * Keys are never logged — only provider name and target URL appear in logs.
  */
 import { incrBaasUsage, getBaasUsage } from './redis.mjs';
+import { getLog } from './logger.mjs';
 
 const enc = (s) => encodeURIComponent(s);
 
@@ -63,13 +64,13 @@ export async function fetchWithBaaS(url) {
     // Check monthly usage
     const usage = await getBaasUsage(provider.name);
     if (usage + provider.creditCost > provider.monthlyLimit) {
-      console.log(`[baas] ${provider.name} monthly limit reached (${usage}/${provider.monthlyLimit})`);
+      getLog().info({ provider: provider.name, usage, limit: provider.monthlyLimit }, 'BaaS monthly limit reached');
       continue;
     }
 
     try {
       const apiUrl = provider.buildUrl(apiKey, url);
-      console.log(`[baas] trying ${provider.name} for ${safeLog(url)}`);
+      getLog().info({ provider: provider.name, url: safeLog(url) }, 'BaaS trying');
 
       const res = await fetch(apiUrl, {
         signal: AbortSignal.timeout(45_000),
@@ -77,29 +78,29 @@ export async function fetchWithBaaS(url) {
       });
 
       if (res.status === 429 || res.status === 402) {
-        console.log(`[baas] ${provider.name} returned ${res.status}, disabling for session`);
+        getLog().warn({ provider: provider.name, httpStatus: res.status }, 'BaaS rate limited, disabling for session');
         disabled.add(provider.name);
         continue;
       }
 
       if (!res.ok) {
-        console.log(`[baas] ${provider.name} returned ${res.status}`);
+        getLog().warn({ provider: provider.name, httpStatus: res.status }, 'BaaS error response');
         continue;
       }
 
       const html = await provider.extractHtml(res);
       if (!html || html.length < 100) {
-        console.log(`[baas] ${provider.name} returned empty/tiny response (${html?.length || 0} chars)`);
+        getLog().warn({ provider: provider.name, chars: html?.length || 0 }, 'BaaS empty/tiny response');
         continue;
       }
 
       // Track usage
       await incrBaasUsage(provider.name, provider.creditCost);
-      console.log(`[baas] ${provider.name} success: ${html.length} chars`);
+      getLog().info({ provider: provider.name, chars: html.length }, 'BaaS success');
 
       return { html, provider: provider.name };
     } catch (err) {
-      console.error(`[baas] ${provider.name} error: ${err.message}`);
+      getLog().error({ provider: provider.name, err: err.message }, 'BaaS error');
       continue;
     }
   }

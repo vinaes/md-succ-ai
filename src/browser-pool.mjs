@@ -1,4 +1,5 @@
 import { chromium } from 'patchright';
+import { getLog } from './logger.mjs';
 
 const MAX_CONCURRENT = 3;
 
@@ -67,7 +68,7 @@ export class BrowserPool {
     } finally {
       this.launching = null;
     }
-    console.log('[browser-pool] Chromium launched');
+    getLog().info('chromium launched');
   }
 
   async newPage() {
@@ -118,7 +119,7 @@ export class BrowserPool {
       await this.browser.close();
       this.browser = null;
       this.active = 0;
-      console.log('[browser-pool] Chromium closed');
+      getLog().info('chromium closed');
     }
   }
 }

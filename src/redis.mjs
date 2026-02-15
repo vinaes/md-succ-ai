@@ -4,6 +4,7 @@
  * Rate limiting falls back to in-memory Map, cache operations return null.
  */
 import Redis from 'ioredis';
+import { getLog } from './logger.mjs';
 
 let redis = null;
 
@@ -29,19 +30,19 @@ export async function initRedis(url = 'redis://redis:6379') {
     redis.on('error', (err) => {
       // Suppress repeated connection errors — just log once
       if (!redis._errorLogged) {
-        console.error(`[redis] ${err.message}`);
+        getLog().error({ err: err.message }, 'redis error');
         redis._errorLogged = true;
       }
     });
 
     redis.on('ready', () => {
-      console.log('[redis] connected');
+      getLog().info('redis connected');
       redis._errorLogged = false;
     });
 
     await redis.connect();
   } catch (err) {
-    console.error(`[redis] init failed: ${err.message} (running without Redis)`);
+    getLog().error({ err: err.message }, 'redis init failed, running without Redis');
     redis = null;
   }
 }
