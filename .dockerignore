@@ -6,6 +6,7 @@ node_modules
 .mcp.json
 nginx
 scripts
+!scripts/browser-server.mjs
 README.md
 CLAUDE.md
 LICENSE
