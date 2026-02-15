@@ -218,17 +218,30 @@ export async function fetchHTML(url) {
       throw new Error(`Page too large: ${(cl / 1024 / 1024).toFixed(1)}MB`);
     }
 
-    const html = await res.text();
-    if (html.length > MAX_RESPONSE_SIZE) {
-      throw new Error(`Page too large: ${(html.length / 1024 / 1024).toFixed(1)}MB`);
+    const raw = await res.text();
+    if (raw.length > MAX_RESPONSE_SIZE) {
+      throw new Error(`Page too large: ${(raw.length / 1024 / 1024).toFixed(1)}MB`);
+    }
+
+    // Raw text/plain and application/json — return as-is (not HTML)
+    if (mimeType === 'application/json' || mimeType === 'text/plain'
+        || mimeType === 'text/csv' || mimeType === 'text/xml') {
+      // Detect language hint from MIME or URL extension
+      const ext = new URL(currentUrl).pathname.split('.').pop()?.toLowerCase();
+      const lang = mimeType === 'application/json' ? 'json'
+        : mimeType === 'text/csv' ? 'csv'
+        : mimeType === 'text/xml' ? 'xml'
+        : ext && ['json', 'yaml', 'yml', 'toml', 'ini', 'csv', 'xml', 'js', 'ts', 'py', 'sh', 'sql', 'css', 'html'].includes(ext) ? ext
+        : '';
+      return { raw, lang, status: res.status };
     }
 
     // RSS/Atom heuristic for ambiguous MIME types (text/xml, application/xml)
-    if (maybeFeedContentType(mimeType) && looksLikeFeed(html)) {
-      return { feed: html, status: res.status };
+    if (maybeFeedContentType(mimeType) && looksLikeFeed(raw)) {
+      return { feed: raw, status: res.status };
     }
 
-    return { html, status: res.status };
+    return { html: raw, status: res.status };
   }
 
   throw new Error('Too many redirects');
@@ -631,6 +644,31 @@ export async function convert(url, browserPool = null, options = {}) {
         url,
         tier: 'feed',
         method: 'rss-parser',
+        readability: false,
+        quality: { score: 0.9, grade: 'A' },
+        totalMs,
+      };
+    }
+
+    // Raw text path (JSON, plain text, CSV, XML) — wrap in code block
+    if (fetched.raw != null) {
+      const lang = fetched.lang || '';
+      let markdown = `\`\`\`${lang}\n${fetched.raw}\n\`\`\``;
+      if (options.links === 'citations') markdown = convertToCitations(markdown);
+      const fit = pruneMarkdown(markdown, options.maxTokens);
+      const tokens = countTokens(options.mode === 'fit' ? fit : markdown);
+      const totalMs = Math.round(performance.now() - t0);
+      const pathName = new URL(url).pathname.split('/').pop() || '';
+      getLog().info({ lang, tokens, ms: totalMs }, 'raw text converted');
+      return {
+        title: pathName,
+        markdown: options.mode === 'fit' ? fit : markdown,
+        fit_markdown: fit,
+        fit_tokens: countTokens(fit),
+        tokens,
+        url,
+        tier: 'fetch',
+        method: 'raw-text',
         readability: false,
         quality: { score: 0.9, grade: 'A' },
         totalMs,
