@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
+  <channel>
+    <title>Test Blog</title>
+    <link>https://blog.example.com</link>
+    <description>A test blog for unit testing</description>
+
+    <item>
+      <title>First Post</title>
+      <link>https://blog.example.com/first</link>
+      <pubDate>Mon, 01 Jan 2024 12:00:00 GMT</pubDate>
+      <content:encoded><![CDATA[
+        <p>Welcome to the first post. This contains <a href="https://example.com">example link</a>.</p>
+        <h2>Subheading</h2>
+        <p>More content in the first post.</p>
+      ]]></content:encoded>
+    </item>
+
+    <item>
+      <title>Second Post</title>
+      <link>https://blog.example.com/second</link>
+      <pubDate>Tue, 02 Jan 2024 12:00:00 GMT</pubDate>
+      <content:encoded><![CDATA[
+        <p>The second post with some text content.</p>
+      ]]></content:encoded>
+    </item>
+
+    <item>
+      <title>Third Post</title>
+      <link>https://blog.example.com/third</link>
+      <pubDate>Wed, 03 Jan 2024 12:00:00 GMT</pubDate>
+      <description>A brief description of the third post</description>
+    </item>
+  </channel>
+</rss>
