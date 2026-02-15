@@ -8,6 +8,7 @@ import { nanoid } from 'nanoid';
 import { getCache, setCache } from './redis.mjs';
 import { getLog } from './logger.mjs';
 import { webhookDeliveriesTotal } from './metrics.mjs';
+import { isBlockedUrl, resolveAndValidate } from './convert.mjs';
 
 const JOB_TTL = 3600; // 1 hour
 const WEBHOOK_RETRIES = 3;
@@ -82,6 +83,21 @@ export async function failJob(id, error) {
 /** Deliver webhook with retry (exponential backoff) */
 async function deliverWebhook(job) {
   const log = getLog();
+
+  // DNS-level SSRF check — prevent callbacks to private/internal addresses
+  if (isBlockedUrl(job.callbackUrl)) {
+    log.warn({ jobId: job.id, callbackUrl: job.callbackUrl }, 'webhook blocked: private address');
+    webhookDeliveriesTotal.inc({ status: 'blocked' });
+    return;
+  }
+  try {
+    await resolveAndValidate(new URL(job.callbackUrl).hostname);
+  } catch (err) {
+    log.warn({ jobId: job.id, err: err.message }, 'webhook blocked: DNS resolves to private address');
+    webhookDeliveriesTotal.inc({ status: 'blocked' });
+    return;
+  }
+
   const payload = JSON.stringify({
     job_id: job.id,
     status: job.status,

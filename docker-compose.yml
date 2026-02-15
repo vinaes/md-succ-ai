@@ -8,10 +8,13 @@ services:
       --maxmemory 128mb
       --maxmemory-policy allkeys-lru
       --save ""
+      --requirepass ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
     networks:
       - internal
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli --no-auth-warning -a $$REDIS_PASSWORD ping"]
       interval: 10s
       timeout: 3s
       retries: 3
@@ -33,7 +36,7 @@ services:
       - PORT=3000
       - ENABLE_BROWSER=true
       - NODE_ENV=production
-      - REDIS_URL=redis://redis:6379
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
       - NANOGPT_API_KEY=${NANOGPT_API_KEY:-}
       - NANOGPT_MODEL=${NANOGPT_MODEL:-meta-llama/llama-3.3-70b-instruct}
       - NANOGPT_EXTRACT_MODEL=${NANOGPT_EXTRACT_MODEL:-}
@@ -53,7 +56,7 @@ services:
       - no-new-privileges:true
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.9.1
     container_name: md-succ-prometheus
     restart: unless-stopped
     volumes:
@@ -70,7 +73,7 @@ services:
           memory: 256M
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:12.3.3
     container_name: md-succ-grafana
     restart: unless-stopped
     depends_on:
