@@ -273,7 +273,7 @@ async function fetchWithBrowser(browserPool, url) {
     const ctx = page.context();
     await page.close();
     await ctx.close();
-    browserPool.release();
+    browserPool.release(page);
   }
 }
 
