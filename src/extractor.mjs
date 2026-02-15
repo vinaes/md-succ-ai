@@ -209,9 +209,8 @@ async function tryArticleExtractor(html, url) {
   }
 }
 
-function tryReadabilityCleaned(html, url) {
-  const { document } = parseHTML(html);
-  cleanHTML(document);
+function tryReadabilityCleaned(cleanedHtml, url) {
+  const { document } = parseHTML(cleanedHtml);
   const article = new Readability(document, { url }).parse();
   if (!isUsableContent(article)) return null;
   return {
@@ -224,9 +223,8 @@ function tryReadabilityCleaned(html, url) {
   };
 }
 
-function tryCssSelectors(html, url) {
-  const { document } = parseHTML(html);
-  cleanHTML(document);
+function tryCssSelectors(cleanedHtml, url) {
+  const { document } = parseHTML(cleanedHtml);
   for (const selector of CONTENT_SELECTORS) {
     try {
       const el = document.querySelector(selector);
@@ -328,9 +326,8 @@ function tryOpenGraph(html) {
   };
 }
 
-function tryTextDensity(html) {
-  const { document } = parseHTML(html);
-  cleanHTML(document);
+function tryTextDensity(cleanedHtml) {
+  const { document } = parseHTML(cleanedHtml);
   const body = document.body;
   if (!body) return null;
 
@@ -366,9 +363,8 @@ function tryTextDensity(html) {
   };
 }
 
-function tryCleanedBody(html) {
-  const { document } = parseHTML(html);
-  cleanHTML(document);
+function tryCleanedBody(cleanedHtml) {
+  const { document } = parseHTML(cleanedHtml);
   const body = document.body;
   if (!body) return null;
   const text = body.textContent?.trim() || '';
@@ -401,16 +397,22 @@ export async function extractContent(html, url) {
   }
   const rawTextLen = rawDoc.body?.textContent?.trim().length || 0;
 
+  // Pre-build cleaned HTML once — passes 4/5/8/9 all need parseHTML + cleanHTML
+  // on the same input. Building it once saves 3 redundant parseHTML + cleanHTML cycles.
+  const { document: cleanedDoc } = parseHTML(html);
+  cleanHTML(cleanedDoc);
+  const cleanedHtml = cleanedDoc.documentElement.outerHTML;
+
   const passes = [
     () => tryReadability(html, url),
     () => tryDefuddle(html, url),
     () => tryArticleExtractor(html, url),
-    () => tryReadabilityCleaned(html, url),
-    () => tryCssSelectors(html, url),
-    () => trySchemaOrg(html),
-    () => tryOpenGraph(html),
-    () => tryTextDensity(html),
-    () => tryCleanedBody(html),
+    () => tryReadabilityCleaned(cleanedHtml, url),
+    () => tryCssSelectors(cleanedHtml, url),
+    () => trySchemaOrg(html),                       // needs raw — reads <script type=ld+json>
+    () => tryOpenGraph(html),                        // needs raw — reads <meta> tags
+    () => tryTextDensity(cleanedHtml),
+    () => tryCleanedBody(cleanedHtml),
   ];
 
   for (const pass of passes) {
