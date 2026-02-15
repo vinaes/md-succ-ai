@@ -87,32 +87,48 @@ function isPrivateIPv6(ip) {
   return false;
 }
 
+// DNS cache — avoid redundant resolve4/resolve6 calls for same hostname
+const dnsCache = new Map();
+const DNS_CACHE_TTL = 5_000; // 5 seconds — short to limit DNS rebinding TOCTOU window
+
 async function resolveAndValidate(hostname) {
   const parts = hostname.split('.').map(Number);
   if (parts.length === 4 && parts.every((n) => n >= 0 && n <= 255)) return;
   if (/^0x[0-9a-f]+$/i.test(hostname) || /^\d+$/.test(hostname)) return;
 
+  const cached = dnsCache.get(hostname);
+  if (cached && Date.now() - cached.ts < DNS_CACHE_TTL) {
+    if (cached.blocked) throw new Error('Blocked URL: resolves to private address');
+    return;
+  }
+
+  let blocked = false;
+
   try {
     const ips = await resolve4(hostname);
     for (const ip of ips) {
-      if (isPrivateIP(ip)) {
-        throw new Error('Blocked URL: resolves to private address');
-      }
+      if (isPrivateIP(ip)) { blocked = true; break; }
     }
-  } catch (e) {
-    if (e.message?.includes('Blocked URL')) throw e;
+  } catch { /* DNS resolution failed — skip */ }
+
+  if (!blocked) {
+    try {
+      const ips = await resolve6(hostname);
+      for (const ip of ips) {
+        if (isPrivateIPv6(ip)) { blocked = true; break; }
+      }
+    } catch { /* DNS resolution failed — skip */ }
   }
 
-  try {
-    const ips = await resolve6(hostname);
-    for (const ip of ips) {
-      if (isPrivateIPv6(ip)) {
-        throw new Error('Blocked URL: resolves to private address');
-      }
+  dnsCache.set(hostname, { ts: Date.now(), blocked });
+  if (dnsCache.size > 500) {
+    const now = Date.now();
+    for (const [k, v] of dnsCache) {
+      if (now - v.ts > DNS_CACHE_TTL) dnsCache.delete(k);
     }
-  } catch (e) {
-    if (e.message?.includes('Blocked URL')) throw e;
   }
+
+  if (blocked) throw new Error('Blocked URL: resolves to private address');
 }
 
 // ─── Fetch tiers ──────────────────────────────────────────────────────
