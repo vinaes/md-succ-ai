@@ -9,6 +9,7 @@ const links = {
     { label: "Self-Hosting", href: "#self-hosting" },
   ],
   resources: [
+    { label: "API Reference", href: "https://md.succ.ai/docs", external: true },
     { label: "Issues", href: "https://github.com/vinaes/md-succ-ai/issues", external: true },
     { label: "API Health", href: "https://md.succ.ai/health", external: true },
   ],

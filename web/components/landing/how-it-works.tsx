@@ -94,6 +94,24 @@ examples without needing permission.
 # → { "title": "Example Domain", "heading": "Example Domain" }`,
     codeTitle: "terminal",
   },
+  {
+    number: "04",
+    title: "Batch & async",
+    description: "Convert up to 50 URLs in one request with POST /batch. Or use POST /async for background processing with optional webhook delivery.",
+    code: `# Batch: convert multiple URLs at once
+curl -X POST https://md.succ.ai/batch \\
+  -H "Content-Type: application/json" \\
+  -d '{"urls": ["https://example.com", "https://htmx.org"]}'
+
+# Async with webhook callback
+curl -X POST https://md.succ.ai/async \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "url": "https://example.com",
+    "callback_url": "https://your-api.com/hook"
+  }'`,
+    codeTitle: "terminal",
+  },
 ]
 
 export function HowItWorks() {

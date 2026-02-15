@@ -108,13 +108,33 @@ Post-processing:
               </div>
               <div className="h-px bg-border" />
               <div className="flex justify-between">
+                <span className="text-green">POST</span>
+                <span className="text-muted-foreground">/batch</span>
+              </div>
+              <div className="h-px bg-border" />
+              <div className="flex justify-between">
+                <span className="text-green">POST</span>
+                <span className="text-muted-foreground">/async</span>
+              </div>
+              <div className="h-px bg-border" />
+              <div className="flex justify-between">
+                <span className="text-blue">GET</span>
+                <span className="text-muted-foreground">/job/:id</span>
+              </div>
+              <div className="h-px bg-border" />
+              <div className="flex justify-between">
                 <span className="text-blue">GET</span>
                 <span className="text-muted-foreground">/health</span>
               </div>
               <div className="h-px bg-border" />
               <div className="flex justify-between">
                 <span className="text-blue">GET</span>
-                <span className="text-muted-foreground">/</span>
+                <span className="text-muted-foreground">/openapi.json</span>
+              </div>
+              <div className="h-px bg-border" />
+              <div className="flex justify-between">
+                <span className="text-blue">GET</span>
+                <span className="text-muted-foreground">/docs</span>
               </div>
             </div>
 
@@ -143,6 +163,11 @@ Post-processing:
               <div className="flex justify-between">
                 <span className="text-foreground">YouTube</span>
                 <span className="text-muted-foreground">transcript + timestamps</span>
+              </div>
+              <div className="h-px bg-border" />
+              <div className="flex justify-between">
+                <span className="text-foreground">RSS / Atom</span>
+                <span className="text-muted-foreground">rss-parser → JSON</span>
               </div>
             </div>
           </div>

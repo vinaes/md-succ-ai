@@ -1,4 +1,4 @@
-import { Scissors, Youtube, LinkIcon, Minimize2, Database, Shield } from "lucide-react"
+import { Scissors, Youtube, LinkIcon, Minimize2, Database, Shield, Layers, Webhook, Rss } from "lucide-react"
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 
 const features = [
@@ -37,6 +37,24 @@ const features = [
     title: "Security Hardened",
     description: "SSRF protection with DNS validation, private IP blocking, redirect validation. Prompt injection hardening. Schema field whitelist.",
     color: "text-blue",
+  },
+  {
+    icon: Layers,
+    title: "Batch Conversion",
+    description: "POST /batch with up to 50 URLs. Parallel processing with 10-worker concurrency. Per-URL errors and timeout protection.",
+    color: "text-green",
+  },
+  {
+    icon: Webhook,
+    title: "Async + Webhooks",
+    description: "POST /async for background jobs. Poll /job/:id or receive results via HTTPS webhook callback. SSRF-protected callbacks.",
+    color: "text-blue",
+  },
+  {
+    icon: Rss,
+    title: "RSS/Atom Feeds",
+    description: "Feed URLs auto-detected by content-type. Parsed into structured JSON with titles, links, dates, and descriptions.",
+    color: "text-green",
   },
 ]
 
