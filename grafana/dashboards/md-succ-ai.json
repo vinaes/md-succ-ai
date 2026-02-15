@@ -236,9 +236,96 @@
       }
     },
     {
+      "title": "Browser Launches",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 6, "x": 4, "y": 32 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        {
+          "expr": "rate(browser_launches_total[5m])",
+          "legendFormat": "launches"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": { "drawStyle": "bars", "fillOpacity": 50 }
+        }
+      }
+    },
+    {
+      "title": "Browser Page Duration (p50 / p95)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 10, "y": 32 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(browser_page_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(browser_page_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "fillOpacity": 10 }
+        }
+      }
+    },
+    {
+      "title": "Pool Exhaustions (1h)",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 18, "y": 32 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        {
+          "expr": "increase(browser_pool_exhausted_total[1h])",
+          "legendFormat": "exhaustions"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 5 },
+              { "color": "red", "value": 20 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "title": "Browser Conversion Ratio",
+      "type": "stat",
+      "gridPos": { "h": 4, "w": 4, "x": 18, "y": 36 },
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "targets": [
+        {
+          "expr": "sum(rate(conversion_tier_total{tier=\"browser\"}[5m])) / sum(rate(conversion_tier_total[5m]))",
+          "legendFormat": "browser %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.3 },
+              { "color": "red", "value": 0.5 }
+            ]
+          }
+        }
+      }
+    },
+    {
       "title": "Process CPU Usage",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 32 },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 40 },
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "targets": [
         {
@@ -260,7 +347,7 @@
     {
       "title": "Process Memory (RSS)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 32 },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 40 },
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "targets": [
         {
@@ -282,7 +369,7 @@
     {
       "title": "Event Loop Lag",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 32 },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 40 },
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
       "targets": [
         {

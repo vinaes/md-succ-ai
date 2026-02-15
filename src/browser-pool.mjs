@@ -1,7 +1,33 @@
 import { chromium } from 'patchright';
 import { getLog } from './logger.mjs';
+import {
+  browserLaunchesTotal,
+  browserPageDuration,
+  browserPoolExhaustedTotal,
+} from './metrics.mjs';
 
 const MAX_CONCURRENT = 3;
+
+const CHROMIUM_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-gpu',
+  '--no-first-run',
+  '--no-zygote',
+  '--disable-extensions',
+];
+
+/**
+ * Parse ENABLE_BROWSER env var into a mode string.
+ * @param {string|undefined} value
+ * @returns {'off' | 'local' | 'remote'}
+ */
+export function parseBrowserMode(value) {
+  if (!value || value === 'false') return 'off';
+  if (value === 'remote') return 'remote';
+  return 'local'; // 'true', 'local', or any other value
+}
 
 /**
  * Check if hostname points to private/internal address (SSRF protection)
@@ -34,15 +60,18 @@ function isPrivateHost(hostname) {
 }
 
 /**
- * Simple browser pool — launches one Chromium instance,
- * reuses it for all requests. Restarts if it crashes.
+ * Browser pool — supports local (in-process Chromium) and remote (CDP sidecar) modes.
+ * Launches/connects once, reuses for all requests. Reconnects on crash.
  * Limits concurrent contexts to MAX_CONCURRENT.
  */
 export class BrowserPool {
-  constructor() {
+  constructor(options = {}) {
     this.browser = null;
     this.launching = null;
     this.active = 0;
+    this.mode = options.mode || 'local';
+    this.wsEndpoint = options.wsEndpoint || '';
+    this._pageTimers = new WeakMap();
   }
 
   async init() {
@@ -51,28 +80,37 @@ export class BrowserPool {
       await this.launching;
       return;
     }
-    this.launching = chromium.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--no-first-run',
-        '--no-zygote',
-        '--disable-extensions',
-      ],
-    });
+
+    this.launching = this.mode === 'remote'
+      ? this._connectRemote()
+      : this._launchLocal();
+
     try {
       this.browser = await this.launching;
+      browserLaunchesTotal.inc();
+    } catch (e) {
+      if (this.mode === 'remote') {
+        throw new Error(`Cannot connect to browser sidecar at ${this.wsEndpoint}: ${e.message}`);
+      }
+      throw e;
     } finally {
       this.launching = null;
     }
-    getLog().info('chromium launched');
+
+    getLog().info({ mode: this.mode }, 'chromium ready');
+  }
+
+  async _launchLocal() {
+    return chromium.launch({ headless: true, args: CHROMIUM_ARGS });
+  }
+
+  async _connectRemote() {
+    return chromium.connect(this.wsEndpoint);
   }
 
   async newPage() {
     if (this.active >= MAX_CONCURRENT) {
+      browserPoolExhaustedTotal.inc();
       throw new Error('Browser pool exhausted: too many concurrent requests');
     }
 
@@ -82,6 +120,7 @@ export class BrowserPool {
     }
 
     this.active++;
+    const stopTimer = browserPageDuration.startTimer();
 
     try {
       const context = await this.browser.newContext({
@@ -103,15 +142,29 @@ export class BrowserPool {
         route.continue();
       });
 
-      return context.newPage();
+      const page = await context.newPage();
+      this._pageTimers.set(page, stopTimer);
+      return page;
     } catch (e) {
       this.active--;
+      stopTimer();
       throw e;
     }
   }
 
-  release() {
+  release(page) {
     if (this.active > 0) this.active--;
+    if (page) {
+      const stopTimer = this._pageTimers.get(page);
+      if (stopTimer) {
+        stopTimer();
+        this._pageTimers.delete(page);
+      }
+    }
+  }
+
+  isReady() {
+    return !!this.browser?.isConnected();
   }
 
   async close() {
@@ -119,6 +172,7 @@ export class BrowserPool {
       await this.browser.close();
       this.browser = null;
       this.active = 0;
+      this._pageTimers = new WeakMap();
       getLog().info('chromium closed');
     }
   }
