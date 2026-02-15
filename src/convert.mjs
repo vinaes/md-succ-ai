@@ -49,7 +49,7 @@ function isPrivateIP(ip) {
   return false;
 }
 
-function isBlockedUrl(urlStr) {
+export function isBlockedUrl(urlStr) {
   try {
     const u = new URL(urlStr);
     const host = u.hostname.toLowerCase();
@@ -93,7 +93,7 @@ function isPrivateIPv6(ip) {
 const dnsCache = new Map();
 const DNS_CACHE_TTL = 5_000; // 5 seconds — short to limit DNS rebinding TOCTOU window
 
-async function resolveAndValidate(hostname) {
+export async function resolveAndValidate(hostname) {
   const parts = hostname.split('.').map(Number);
   if (parts.length === 4 && parts.every((n) => n >= 0 && n <= 255)) return;
   if (/^0x[0-9a-f]+$/i.test(hostname) || /^\d+$/.test(hostname)) return;
