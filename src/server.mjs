@@ -153,10 +153,10 @@ app.use('*', async (c, next) => {
 
 // Prometheus request timing (skip /metrics to avoid self-instrumentation)
 app.use('*', async (c, next) => {
+  if (c.req.path === '/metrics' || c.req.path === '/health') return next();
   const end = httpRequestDuration.startTimer();
   await next();
-  if (c.req.path === '/metrics') return;
-  const route = c.req.routePath || 'unknown';
+  const route = c.req.routePath || c.req.path;
   const labels = { method: c.req.method, route, status: String(c.res.status) };
   end(labels);
   httpRequestsTotal.inc(labels);
