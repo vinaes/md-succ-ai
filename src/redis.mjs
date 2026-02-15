@@ -17,7 +17,7 @@ const memLimiter = new Map();
  */
 export async function initRedis(url = 'redis://redis:6379') {
   try {
-    redis = new Redis(url, {
+    const client = new Redis(url, {
       enableOfflineQueue: false,
       maxRetriesPerRequest: 1,
       lazyConnect: true,
@@ -27,18 +27,20 @@ export async function initRedis(url = 'redis://redis:6379') {
       },
     });
 
-    redis.on('error', (err) => {
+    client.on('error', (err) => {
       // Suppress repeated connection errors — just log once
-      if (!redis._errorLogged) {
+      if (!client._errorLogged) {
         getLog().error({ err: err.message }, 'redis error');
-        redis._errorLogged = true;
+        client._errorLogged = true;
       }
     });
 
-    redis.on('ready', () => {
+    client.on('ready', () => {
       getLog().info('redis connected');
-      redis._errorLogged = false;
+      client._errorLogged = false;
     });
+
+    redis = client;
 
     await redis.connect();
   } catch (err) {
