@@ -234,13 +234,16 @@ export function normalizeSpacing(document) {
 
 export function resolveUrls(markdown, baseUrl) {
   if (!baseUrl) return markdown;
+  // Skip extremely large inputs to prevent ReDoS (content already bounded by MAX_RESPONSE_SIZE)
+  if (markdown.length > 1_000_000) return markdown;
   let base;
   try {
     base = new URL(baseUrl);
   } catch {
     return markdown;
   }
-  return markdown.replace(/(!?\[[^\]]*\])\(([^)]+)\)/g, (match, prefix, href) => {
+  // Use bounded quantifier {1,2048} to prevent catastrophic backtracking
+  return markdown.replace(/(!?\[[^\]]*\])\(([^)]{1,2048})\)/g, (match, prefix, href) => {
     const trimmed = href.trim();
     if (/^(data:|#|mailto:|tel:|javascript:)/i.test(trimmed)) return match;
     if (/^https?:\/\//i.test(trimmed)) return match;

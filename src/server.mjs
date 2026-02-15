@@ -523,7 +523,7 @@ app.get('/docs', (c) => {
 </head>
 <body>
 <script id="api-reference" data-url="/openapi.json"></script>
-<script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+<script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference" integrity="sha384-0zmuk41W3B8rmSKC1IRdVEU/CquyBOnb45sGkXblGx+CoG6r3H4ARdvMKnFpCSLM" crossorigin="anonymous"></script>
 </body>
 </html>`);
 });
