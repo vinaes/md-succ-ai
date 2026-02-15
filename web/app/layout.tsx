@@ -13,7 +13,7 @@ const jetbrainsMono = JetBrains_Mono({
 })
 
 export const metadata: Metadata = {
-  title: 'md.succ.ai — HTML to clean Markdown API',
+  title: 'md.succ.ai — URL to Markdown API',
   description: 'Convert any webpage to clean, readable Markdown. YouTube transcripts, citation-style links, fit_markdown mode, structured data extraction, batch conversion, async webhooks, and RSS/Atom feeds. 9-pass extraction with Readability + Defuddle. Built for AI agents, MCP tools, and RAG pipelines. No API key required.',
   keywords: ['markdown', 'html to markdown', 'readability', 'web scraping', 'ai agents', 'mcp', 'rag', 'succ', 'content extraction', 'web to markdown', 'url to markdown', 'playwright', 'turndown', 'llm tools', 'ai tools', 'youtube transcript', 'citation links', 'schema extraction', 'defuddle', 'batch conversion', 'async webhook', 'rss atom feed'],
   metadataBase: new URL('https://md.succ.ai'),
@@ -21,7 +21,7 @@ export const metadata: Metadata = {
     canonical: '/',
   },
   openGraph: {
-    title: 'md.succ.ai — HTML to clean Markdown API',
+    title: 'md.succ.ai — URL to Markdown API',
     description: 'Convert any URL to clean Markdown. 9-pass extraction, YouTube transcripts, citation links, fit mode, schema extraction. Built for AI agents and RAG pipelines.',
     type: 'website',
     url: 'https://md.succ.ai',
@@ -30,7 +30,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary',
-    title: 'md.succ.ai — HTML to clean Markdown API',
+    title: 'md.succ.ai — URL to Markdown API',
     description: 'Convert any URL to clean Markdown. YouTube transcripts, citation links, schema extraction. Built for AI agents and RAG pipelines.',
   },
   icons: {
@@ -72,7 +72,7 @@ const jsonLdString = JSON.stringify({
       '@type': 'WebApplication',
       name: 'md.succ.ai',
       url: 'https://md.succ.ai',
-      description: 'HTML to clean Markdown API. 9-pass content extraction with Readability and Defuddle. YouTube transcripts, citation links, fit_markdown, schema extraction. Built for AI agents, MCP tools, and RAG pipelines.',
+      description: 'URL to Markdown API. 9-pass content extraction with Readability and Defuddle. YouTube transcripts, citation links, fit_markdown, schema extraction. Built for AI agents, MCP tools, and RAG pipelines.',
       applicationCategory: 'DeveloperApplication',
       operatingSystem: 'Any',
       offers: {
