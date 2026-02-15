@@ -8,7 +8,7 @@ md.succ.ai converts any URL to clean Markdown using a 9-pass extraction pipeline
 
 ## API Usage
 
-No API key required. No authentication. Rate limits: 60 req/min (convert), 10 req/min (extract), 5 req/min (batch).
+No API key required. No authentication. Rate limits: 60 req/min (convert), 10 req/min (extract/async), 5 req/min (batch).
 
 ### Endpoints
 
@@ -16,7 +16,11 @@ No API key required. No authentication. Rate limits: 60 req/min (convert), 10 re
 - GET https://md.succ.ai/?url={url} - query param format
 - POST https://md.succ.ai/batch - batch convert multiple URLs
 - POST https://md.succ.ai/extract - structured data extraction (JSON schema)
+- POST https://md.succ.ai/async - async conversion with optional webhook
+- GET https://md.succ.ai/job/{id} - poll async job status
 - GET https://md.succ.ai/health - health check
+- GET https://md.succ.ai/openapi.json - OpenAPI 3.1 spec
+- GET https://md.succ.ai/docs - interactive API docs (Scalar UI)
 
 ### Query Parameters
 
@@ -43,6 +47,22 @@ curl "https://md.succ.ai/?url=https://htmx.org/docs/&mode=fit"
 curl -X POST https://md.succ.ai/batch \
   -H "Content-Type: application/json" \
   -d '{"urls": ["https://example.com", "https://httpbin.org/html"], "options": {"mode": "fit"}}'
+
+# RSS/Atom feed
+curl https://md.succ.ai/https://feeds.arstechnica.com/arstechnica/index
+
+# Async conversion (returns job_id immediately)
+curl -X POST https://md.succ.ai/async \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com"}'
+
+# Async with webhook callback
+curl -X POST https://md.succ.ai/async \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com", "callback_url": "https://your-api.com/webhook"}'
+
+# Poll async job status
+curl https://md.succ.ai/job/{job_id}
 
 # Structured extraction
 curl -X POST https://md.succ.ai/extract \
@@ -84,7 +104,7 @@ curl -X POST https://md.succ.ai/extract \
 ### Response Headers
 
 - x-markdown-tokens: cl100k_base token count
-- x-conversion-tier: fetch | browser | llm | youtube | document:pdf
+- x-conversion-tier: fetch | browser | llm | youtube | feed | document:pdf
 - x-conversion-time: conversion time in milliseconds
 - x-extraction-method: readability | defuddle | article-extractor | pdf | ...
 - x-quality-score: quality score 0-1
@@ -94,6 +114,7 @@ curl -X POST https://md.succ.ai/extract \
 - x-ratelimit-limit: max requests per minute
 - x-ratelimit-remaining: requests remaining in current window
 - x-ratelimit-reset: Unix timestamp when window resets
+- x-request-id: unique request ID for tracing
 
 ### Conditional Requests (ETag)
 
@@ -112,10 +133,11 @@ curl -H 'If-None-Match: W/"a1b2c3d4..."' https://md.succ.ai/https://example.com
 ## Pipeline
 
 1. **YouTube detection**: YouTube URLs bypass HTML pipeline - transcript extracted via innertube API
-2. **Document detection**: PDF, DOCX, XLSX, CSV detected by Content-Type or extension
-3. **Tier 1 (fast)**: 9-pass extraction pipeline (200-500ms) with quality ratio checks
-4. **Tier 2 (browser)**: Playwright headless Chromium for SPAs and JS-heavy sites (3-15s)
-5. **Tier 2.5 (LLM)**: Llama 3.3 70B via nano-gpt when quality < B
+2. **RSS/Atom detection**: Feed MIME types and XML heuristics - parsed into structured Markdown
+3. **Document detection**: PDF, DOCX, XLSX, CSV detected by Content-Type or extension
+4. **Tier 1 (fast)**: 9-pass extraction pipeline (200-500ms) with quality ratio checks
+5. **Tier 2 (browser)**: Playwright headless Chromium for SPAs and JS-heavy sites (3-15s)
+6. **Tier 2.5 (LLM)**: Llama 3.3 70B via nano-gpt when quality < B
 
 Automatic tier escalation - no configuration needed.
 
@@ -137,6 +159,7 @@ Cache-Control header reflects the actual TTL. Tracking params (utm_*, fbclid, gc
 - XLSX/XLS - SheetJS -> Markdown tables
 - CSV - SheetJS -> Markdown table
 - YouTube - transcript with timestamps
+- RSS/Atom - feed items with content, dates, authors
 
 ## Self-Hosting
 

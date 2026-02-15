@@ -3,6 +3,7 @@
  * Custom implementation — youtube-transcript npm package returns empty arrays.
  */
 import { countTokens, scoreMarkdown } from './markdown.mjs';
+import { getLog } from './logger.mjs';
 
 const YOUTUBE_REGEX = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/;
 
@@ -100,7 +101,7 @@ async function fetchYouTubeTitle(videoId) {
       if (data.title) return data.title;
     }
   } catch (e) {
-    console.log(`[youtube] oEmbed failed for ${videoId}: ${e.message}`);
+    getLog().warn({ videoId, err: e.message }, 'oEmbed failed');
   }
   return `YouTube Video ${videoId}`;
 }
@@ -113,7 +114,7 @@ export async function tryYouTube(url) {
   const match = url.match(YOUTUBE_REGEX);
   if (!match) {
     if (url.includes('youtube') || url.includes('youtu.be')) {
-      console.log(`[youtube] URL looks like YouTube but regex didn't match: ${url.slice(0, 120)}`);
+      getLog().warn({ url: url.slice(0, 120) }, 'URL looks like YouTube but regex did not match');
     }
     return null;
   }
@@ -145,7 +146,7 @@ export async function tryYouTube(url) {
     const quality = scoreMarkdown(markdown);
 
     const ms = Math.round(performance.now() - t0);
-    console.log(`[youtube] ${videoId} "${title}" ${segments.length} segments ${tokens}tok ${ms}ms`);
+    getLog().info({ videoId, title, segments: segments.length, tokens, ms }, 'youtube transcript');
 
     return {
       title,
@@ -161,7 +162,7 @@ export async function tryYouTube(url) {
       plainTranscript: plainText,
     };
   } catch (e) {
-    console.log(`[youtube] transcript unavailable for ${videoId}: ${e.message}`);
+    getLog().info({ videoId, err: e.message }, 'transcript unavailable');
     return null;
   }
 }

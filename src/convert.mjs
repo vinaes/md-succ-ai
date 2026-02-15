@@ -19,6 +19,8 @@ import {
 } from './markdown.mjs';
 import { DOCUMENT_FORMATS, detectFormatByExtension, convertDocument } from './documents.mjs';
 import { tryYouTube } from './youtube.mjs';
+import { getLog } from './logger.mjs';
+import { isFeedContentType, maybeFeedContentType, looksLikeFeed, parseFeed } from './feed.mjs';
 
 // ─── Security ─────────────────────────────────────────────────────────
 
@@ -177,6 +179,12 @@ export async function fetchHTML(url) {
     const contentType = (res.headers.get('content-type') || '').toLowerCase();
     const mimeType = contentType.split(';')[0].trim();
 
+    // RSS/Atom feed detection — definite feed MIME types
+    if (isFeedContentType(mimeType)) {
+      const xml = await res.text();
+      return { feed: xml, status: res.status };
+    }
+
     const docFormat = DOCUMENT_FORMATS[mimeType]
       || (mimeType === 'application/octet-stream' ? detectFormatByExtension(currentUrl) : null);
 
@@ -213,6 +221,11 @@ export async function fetchHTML(url) {
     const html = await res.text();
     if (html.length > MAX_RESPONSE_SIZE) {
       throw new Error(`Page too large: ${(html.length / 1024 / 1024).toFixed(1)}MB`);
+    }
+
+    // RSS/Atom heuristic for ambiguous MIME types (text/xml, application/xml)
+    if (maybeFeedContentType(mimeType) && looksLikeFeed(html)) {
+      return { feed: html, status: res.status };
     }
 
     return { html, status: res.status };
@@ -280,7 +293,7 @@ async function htmlToMarkdown(html, url) {
     const text = doc.body?.textContent?.trim() || '';
     markdown = cleanMarkdown(text);
     extracted.method += '+text-only';
-    console.log(`[convert] HTML too large (${(extracted.contentHtml.length / 1024).toFixed(0)}KB), using text-only extraction`);
+    getLog().warn({ htmlKB: Math.round(extracted.contentHtml.length / 1024) }, 'HTML too large, using text-only extraction');
   } else {
     const { document } = parseHTML(`<html><body>${extracted.contentHtml}</body></html>`);
     normalizeSpacing(document);
@@ -373,7 +386,7 @@ async function tryLLMExtraction(html, url) {
 
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      console.error(`[llm] ${NANOGPT_MODEL} HTTP ${res.status}: ${body.slice(0, 200)}`);
+      getLog().error({ model: NANOGPT_MODEL, httpStatus: res.status, body: body.slice(0, 200) }, 'LLM API error');
       return null;
     }
 
@@ -390,7 +403,7 @@ async function tryLLMExtraction(html, url) {
       'here is the', 'here are the', 'instructions:', 'sure, here',
     ];
     if (INJECTION_SIGNALS.some((s) => lower.startsWith(s))) {
-      console.warn(`[llm] output rejected: possible injection response`);
+      getLog().warn('LLM output rejected: possible injection response');
       return null;
     }
 
@@ -399,7 +412,7 @@ async function tryLLMExtraction(html, url) {
 
     const ms = Math.round(performance.now() - t0);
     const model = NANOGPT_MODEL.split('/').pop();
-    console.log(`[llm] ${model} ${tokens}tok ${ms}ms ${quality.grade}(${quality.score})`);
+    getLog().info({ model, tokens, ms, grade: quality.grade, score: quality.score }, 'LLM extraction');
 
     return {
       title,
@@ -414,7 +427,7 @@ async function tryLLMExtraction(html, url) {
       quality,
     };
   } catch (e) {
-    console.error(`[llm] ${NANOGPT_MODEL} failed:`, e.message);
+    getLog().error({ model: NANOGPT_MODEL, err: e.message }, 'LLM extraction failed');
     return null;
   }
 }
@@ -499,7 +512,7 @@ export async function extractSchema(markdown, url, schema) {
   const schemaDesc = JSON.stringify(jsonSchema.properties || jsonSchema, null, 2);
   const userMessage = `<DOCUMENT>\n${truncated}\n</DOCUMENT>\n\n<SCHEMA>\n${schemaDesc}\n</SCHEMA>\n\nExtract the data matching the schema from the document. Return ONLY valid JSON.`;
 
-  console.log(`[schema] model=${NANOGPT_EXTRACT_MODEL} content=${truncated.length}chars`);
+  getLog().info({ model: NANOGPT_EXTRACT_MODEL, chars: truncated.length }, 'schema extraction');
 
   const t0 = performance.now();
   const res = await fetch(`${NANOGPT_BASE}/chat/completions`, {
@@ -522,7 +535,7 @@ export async function extractSchema(markdown, url, schema) {
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    console.error(`[schema] LLM API error: ${res.status} ${body.slice(0, 500)}`);
+    getLog().error({ httpStatus: res.status, body: body.slice(0, 500) }, 'schema LLM API error');
     throw new Error('LLM extraction failed');
   }
 
@@ -545,7 +558,7 @@ export async function extractSchema(markdown, url, schema) {
   const valid = validate(data);
 
   const ms = Math.round(performance.now() - t0);
-  console.log(`[schema] ${NANOGPT_EXTRACT_MODEL.split('/').pop()} ${url} ${ms}ms valid=${valid}`);
+  getLog().info({ model: NANOGPT_EXTRACT_MODEL.split('/').pop(), url, ms, valid }, 'schema result');
 
   return {
     data,
@@ -571,7 +584,7 @@ export async function convert(url, browserPool = null, options = {}) {
   try {
     ytResult = await tryYouTube(url);
   } catch (ytErr) {
-    console.error(`[convert] tryYouTube threw unexpectedly: ${ytErr.message}`);
+    getLog().error({ err: ytErr.message }, 'tryYouTube threw unexpectedly');
   }
   if (ytResult) {
     let { markdown } = ytResult;
@@ -600,13 +613,37 @@ export async function convert(url, browserPool = null, options = {}) {
   if (!options.skipFetch) try {
     const fetched = await fetchHTML(url);
 
+    // RSS/Atom feed path — parse and return early
+    if (fetched.feed) {
+      const feedData = await parseFeed(fetched.feed, url);
+      let markdown = feedData.markdown;
+      if (options.links === 'citations') markdown = convertToCitations(markdown);
+      const fit = pruneMarkdown(markdown, options.maxTokens);
+      const tokens = countTokens(options.mode === 'fit' ? fit : markdown);
+      const totalMs = Math.round(performance.now() - t0);
+      getLog().info({ items: feedData.itemCount, tokens, ms: totalMs }, 'feed converted');
+      return {
+        title: feedData.title,
+        markdown: options.mode === 'fit' ? fit : markdown,
+        fit_markdown: fit,
+        fit_tokens: countTokens(fit),
+        tokens,
+        url,
+        tier: 'feed',
+        method: 'rss-parser',
+        readability: false,
+        quality: { score: 0.9, grade: 'A' },
+        totalMs,
+      };
+    }
+
     // Document format path (PDF, DOCX, XLSX, CSV) — convert and return early
     if (fetched.buffer) {
       try {
         result = await convertDocument(fetched.buffer, fetched.format);
         tier = `document:${fetched.format}`;
         const totalMs = Math.round(performance.now() - t0);
-        console.log(`[doc] ${fetched.format} ${result.tokens}tok ${totalMs}ms ${result.quality.grade}(${result.quality.score})`);
+        getLog().info({ format: fetched.format, tokens: result.tokens, ms: totalMs, grade: result.quality.grade, score: result.quality.score }, 'document converted');
         return { ...result, url, tier, totalMs };
       } catch (e) {
         throw new Error(`Document conversion failed: ${e.message}`);
@@ -619,14 +656,14 @@ export async function convert(url, browserPool = null, options = {}) {
     fetchError = e.cause?.message || e.cause?.code || e.message;
     const httpMatch = fetchError.match?.(/^HTTP_(\d+)$/);
     if (httpMatch) httpErrorStatus = parseInt(httpMatch[1], 10);
-    console.error(`[convert] fetch error for ${url}: ${fetchError}`);
+    getLog().error({ url, err: fetchError }, 'fetch error');
   }
 
   if (!fetchFailed) {
     try {
       result = await htmlToMarkdown(html, url);
     } catch (e) {
-      console.error(`[convert] htmlToMarkdown failed for ${url}: ${e.message}`);
+      getLog().error({ url, err: e.message }, 'htmlToMarkdown failed');
     }
   }
 
@@ -669,7 +706,7 @@ export async function convert(url, browserPool = null, options = {}) {
         }
       }
     } catch (e) {
-      console.error(`[convert] Browser failed for ${url}: ${e.message}`);
+      getLog().error({ url, err: e.message }, 'browser failed');
       escalation.push(`browser failed: ${e.message}`);
       if (!result) {
         throw new Error(
@@ -715,7 +752,7 @@ export async function convert(url, browserPool = null, options = {}) {
         candidates.push({ result: llmSettled.value, tier: 'llm' });
       } else if (llmSettled.status === 'rejected') {
         escalation.push(`LLM failed: ${llmSettled.reason?.message}`);
-        console.error(`[convert] LLM extraction failed: ${llmSettled.reason?.message}`);
+        getLog().error({ err: llmSettled.reason?.message }, 'LLM extraction failed');
       } else {
         escalation.push('LLM extraction returned null');
       }
@@ -725,7 +762,7 @@ export async function convert(url, browserPool = null, options = {}) {
         candidates.push({ result: md, tier: `baas:${_provider}` });
       } else if (baasSettled.status === 'rejected') {
         escalation.push(`BaaS failed: ${baasSettled.reason?.message}`);
-        console.error(`[convert] BaaS failed: ${baasSettled.reason?.message}`);
+        getLog().error({ err: baasSettled.reason?.message }, 'BaaS failed');
       } else {
         escalation.push('BaaS returned no result');
       }
@@ -738,7 +775,7 @@ export async function convert(url, browserPool = null, options = {}) {
         else escalation.push('LLM extraction returned null');
       } catch (e) {
         escalation.push(`LLM failed: ${e.message}`);
-        console.error(`[convert] LLM extraction failed: ${e.message}`);
+        getLog().error({ err: e.message }, 'LLM extraction failed');
       }
 
     } else if (needsBaaS) {
@@ -752,7 +789,7 @@ export async function convert(url, browserPool = null, options = {}) {
         }
       } catch (e) {
         escalation.push(`BaaS failed: ${e.message}`);
-        console.error(`[convert] BaaS failed: ${e.message}`);
+        getLog().error({ err: e.message }, 'BaaS failed');
       }
     }
 

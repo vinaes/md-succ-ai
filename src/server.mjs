@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { nanoid } from 'nanoid';
 import { Hono } from 'hono';
 import { compress } from 'hono/compress';
 import { serve } from '@hono/node-server';
@@ -9,6 +11,8 @@ import { cors } from 'hono/cors';
 import { convert, extractSchema } from './convert.mjs';
 import { BrowserPool } from './browser-pool.mjs';
 import { initRedis, shutdownRedis, getRedis, checkRateLimit, getCache, setCache } from './redis.mjs';
+import { withRequestContext, getLog } from './logger.mjs';
+import { createJob, getJob, completeJob, failJob } from './jobs.mjs';
 
 const app = new Hono();
 const browserPool = new BrowserPool();
@@ -133,6 +137,14 @@ app.use('*', cors());
 // Gzip compression
 app.use('*', compress());
 
+// Request context — injects reqId into every log line via AsyncLocalStorage
+app.use('*', async (c, next) => {
+  const reqId = nanoid(8);
+  c.set('requestId', reqId);
+  c.header('x-request-id', reqId);
+  await withRequestContext({ reqId, ip: getClientIp(c) }, () => next());
+});
+
 // Security headers
 app.use('*', async (c, next) => {
   await next();
@@ -209,11 +221,11 @@ app.post('/extract', async (c) => {
     const extractCacheKey = `extract:${hashKey(targetUrl)}:${schemaHash}`;
     const cached = await getCache(extractCacheKey);
     if (cached) {
-      console.log(`[extract] cache hit ${safeLog(targetUrl)}`);
+      getLog().info({ url: safeLog(targetUrl) }, 'extract cache hit');
       return c.json(cached);
     }
 
-    console.log(`[extract] ${safeLog(targetUrl)}`);
+    getLog().info({ url: safeLog(targetUrl) }, 'extract');
     const pool = ENABLE_BROWSER ? browserPool : null;
     const converted = await convert(targetUrl, pool);
     let result = await extractSchema(converted.markdown, targetUrl, schema);
@@ -229,7 +241,7 @@ app.post('/extract', async (c) => {
       if (converted.tier?.includes('browser')) {
         retryOpts.skipFetch = true;
       }
-      console.log(`[extract] empty result from ${converted.tier}${converted.cfChallenge ? ' (CF challenge)' : ''}, retrying with browser${retryOpts.skipFetch ? ' (skipFetch)' : ''}`);
+      getLog().info({ tier: converted.tier, cfChallenge: !!converted.cfChallenge, skipFetch: !!retryOpts.skipFetch }, 'extract empty, retrying with browser');
       const browserConverted = await convert(targetUrl, pool, retryOpts);
       if (browserConverted.markdown.length > converted.markdown.length) {
         result = await extractSchema(browserConverted.markdown, targetUrl, schema);
@@ -243,7 +255,7 @@ app.post('/extract', async (c) => {
 
     return c.json(result);
   } catch (err) {
-    console.error(`[extract] ${safeLog(targetUrl)} — ${err.message}`);
+    getLog().error({ url: safeLog(targetUrl), err: err.message }, 'extract failed');
     const status = err.message?.includes('Invalid schema') || err.message?.includes('must be') ? 400 : 500;
     return c.json({ error: sanitizeError(err.message), url: sanitizeUrl(targetUrl) }, status);
   }
@@ -368,6 +380,131 @@ app.post('/batch', async (c) => {
   return c.json({ results, total: urls.length, total_tokens: totalTokens });
 });
 
+// ─── POST /async — async conversion with optional webhook ───────────
+const ASYNC_RATE_LIMIT = 10;
+
+app.post('/async', async (c) => {
+  const ip = getClientIp(c);
+  const rl = await checkRateLimit(`rl:async:${ip}`, ASYNC_RATE_LIMIT, 60);
+
+  c.header('x-ratelimit-limit', String(ASYNC_RATE_LIMIT));
+  c.header('x-ratelimit-remaining', String(rl.remaining));
+  c.header('x-ratelimit-reset', String(Math.ceil(Date.now() / 1000) + 60));
+
+  if (!rl.allowed) {
+    return c.json({ error: 'Rate limited: max 10 async requests per minute' }, 429);
+  }
+
+  // Require Redis for job storage
+  if (getRedis()?.status !== 'ready') {
+    return c.json({ error: 'Async processing unavailable (Redis required)' }, 503);
+  }
+
+  let body;
+  try { body = await c.req.json(); } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const { url: targetUrl, options, callback_url: callbackUrl } = body || {};
+  if (!targetUrl || typeof targetUrl !== 'string') {
+    return c.json({ error: 'Required: url (string)' }, 400);
+  }
+
+  // Validate URL
+  let validUrl = targetUrl.startsWith('http') ? targetUrl : `https://${targetUrl}`;
+  try {
+    const u = new URL(validUrl);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+      return c.json({ error: 'Only http/https URLs are supported' }, 400);
+    }
+  } catch {
+    return c.json({ error: 'Invalid URL' }, 400);
+  }
+
+  // Validate callback URL (must be https, no private/internal addresses)
+  if (callbackUrl) {
+    try {
+      const u = new URL(callbackUrl);
+      if (u.protocol !== 'https:') {
+        return c.json({ error: 'callback_url must use https' }, 400);
+      }
+      const host = u.hostname.toLowerCase();
+      // Block private/internal/metadata IPs
+      if (host === 'localhost' || host === '[::1]' || host === '' || host.startsWith('[')) {
+        return c.json({ error: 'callback_url cannot target private addresses' }, 400);
+      }
+      const parts = host.split('.').map(Number);
+      if (parts.length === 4 && parts.every((n) => n >= 0 && n <= 255)) {
+        const [a, b] = parts;
+        if (a === 0 || a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) ||
+            (a === 192 && b === 168) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127)) {
+          return c.json({ error: 'callback_url cannot target private addresses' }, 400);
+        }
+      }
+      const METADATA_HOSTS = ['metadata.google.internal', 'metadata.goog', 'instance-data.ec2.internal'];
+      if (METADATA_HOSTS.includes(host.replace(/\.$/, ''))) {
+        return c.json({ error: 'callback_url cannot target metadata services' }, 400);
+      }
+    } catch {
+      return c.json({ error: 'Invalid callback_url' }, 400);
+    }
+  }
+
+  const job = await createJob(validUrl, options || {}, callbackUrl);
+  const log = getLog();
+  const reqCtx = { reqId: c.get('requestId'), ip: getClientIp(c) };
+  log.info({ jobId: job.id, url: validUrl, callback: !!callbackUrl }, 'async job created');
+
+  // Process in background — wrap with request context so downstream getLog() retains reqId
+  withRequestContext(reqCtx, async () => {
+    try {
+      const pool = ENABLE_BROWSER ? browserPool : null;
+      const result = await convert(validUrl, pool, options || {});
+      await completeJob(job.id, result);
+      log.info({ jobId: job.id, tokens: result.tokens, tier: result.tier }, 'async job completed');
+    } catch (err) {
+      try {
+        await failJob(job.id, sanitizeError(err.message));
+      } catch {}
+      log.error({ jobId: job.id, err: err.message }, 'async job failed');
+    }
+  }).catch((err) => log.error({ jobId: job.id, err: err.message }, 'async job unhandled error'));
+
+  return c.json({
+    job_id: job.id,
+    status: 'processing',
+    poll_url: `/job/${job.id}`,
+  }, 202);
+});
+
+// ─── GET /job/:id — poll async job status ────────────────────────────
+app.get('/job/:id', async (c) => {
+  const id = c.req.param('id');
+  const job = await getJob(id);
+  if (!job) return c.json({ error: 'Job not found' }, 404);
+  // Strip internal fields from response
+  const { callbackUrl, options, ...safeJob } = job;
+  return c.json(safeJob);
+});
+
+// ─── OpenAPI spec + docs ─────────────────────────────────────────────
+const openapiSpec = JSON.parse(readFileSync(new URL('./openapi.json', import.meta.url), 'utf8'));
+
+app.get('/openapi.json', (c) => c.json(openapiSpec));
+
+app.get('/docs', (c) => {
+  return c.html(`<!DOCTYPE html>
+<html>
+<head><title>md.succ.ai API Reference</title>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<script id="api-reference" data-url="/openapi.json"></script>
+<script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+</body>
+</html>`);
+});
+
 // ─── GET /* — main conversion endpoint ──────────────────────────────
 // Also handles: GET /https://example.com/path
 // Known API params — everything else belongs to the target URL
@@ -429,7 +566,7 @@ app.get('/*', async (c) => {
     return c.json(
       {
         name: 'md.succ.ai',
-        description: 'URL to Markdown API — with fit mode, citations, YouTube transcripts, batch conversion, and LLM extraction',
+        description: 'URL to Markdown API — with fit mode, citations, YouTube transcripts, RSS/Atom feeds, batch conversion, async+webhooks, and LLM extraction',
         usage: 'GET /https://example.com or GET /?url=https://example.com',
         params: {
           mode: 'fit — pruned markdown optimized for LLMs (30-50% fewer tokens)',
@@ -440,7 +577,11 @@ app.get('/*', async (c) => {
           'GET /': 'Convert URL to markdown',
           'POST /extract': 'Extract structured data via LLM (body: {url, schema})',
           'POST /batch': 'Batch convert URLs (body: {urls, options?})',
+          'POST /async': 'Async conversion with optional webhook (body: {url, options?, callback_url?})',
+          'GET /job/:id': 'Poll async job status',
           'GET /health': 'Health check',
+          'GET /openapi.json': 'OpenAPI 3.1 spec',
+          'GET /docs': 'API reference (Scalar UI)',
         },
         headers: {
           'x-markdown-tokens': 'Token count in response',
@@ -479,9 +620,9 @@ app.get('/*', async (c) => {
 
     if (hit) {
       result = hit.result;
-      console.log(`[hit:${hit.source}] ${safeLog(targetUrl)} ${result.tokens}tok`);
+      getLog().info({ url: safeLog(targetUrl), tokens: result.tokens, cache: hit.source }, 'cache hit');
     } else {
-      console.log(`[req] ${safeLog(targetUrl)}`);
+      getLog().info({ url: safeLog(targetUrl) }, 'request');
       const pool = ENABLE_BROWSER ? browserPool : null;
       const options = {
         links: apiLinks,
@@ -495,7 +636,7 @@ app.get('/*', async (c) => {
       await setCachedResult(cacheKey, result, ttl);
 
       const q = result.quality || { score: 0, grade: 'F' };
-      console.log(`[ok]  ${result.tier} ${result.tokens}tok ${result.totalMs}ms ${q.grade}(${q.score}) ${result.method || 'unknown'}`);
+      getLog().info({ tier: result.tier, tokens: result.tokens, ms: result.totalMs, grade: q.grade, score: q.score, method: result.method || 'unknown' }, 'ok');
     }
 
     const q = result.quality || { score: 0, grade: 'F' };
@@ -570,7 +711,7 @@ app.get('/*', async (c) => {
 
     return c.body(`${header}\n${result.markdown}`);
   } catch (err) {
-    console.error(`[err] ${safeLog(targetUrl)} — ${err.message}`);
+    getLog().error({ url: safeLog(targetUrl), err: err.message }, 'conversion failed');
     // Forward upstream HTTP errors (e.g. "Fetch failed: HTTP_404" → 404)
     const upstreamMatch = err.message?.match?.(/HTTP[_ ](\d{3})/);
     const status = upstreamMatch ? parseInt(upstreamMatch[1], 10)
@@ -593,22 +734,23 @@ await initRedis(process.env.REDIS_URL || 'redis://redis:6379');
 // Initialize browser if enabled
 if (ENABLE_BROWSER) {
   browserPool.init().catch((err) => {
-    console.error('[server] Failed to launch browser:', err.message);
-    console.log('[server] Running without browser fallback');
+    getLog().error({ err: err.message }, 'failed to launch browser');
+    getLog().info('running without browser fallback');
   });
 }
 
 // Start server
 serve({ fetch: app.fetch, port: PORT }, () => {
-  console.log(`[md.succ.ai] Listening on http://0.0.0.0:${PORT}`);
-  console.log(`[md.succ.ai] Browser fallback: ${ENABLE_BROWSER}`);
-  console.log(`[md.succ.ai] Redis: ${getRedis()?.status === 'ready' ? 'connected' : 'unavailable (using memory fallback)'}`);
+  const log = getLog();
+  log.info({ port: PORT }, 'listening');
+  log.info({ browser: ENABLE_BROWSER }, 'browser fallback');
+  log.info({ redis: getRedis()?.status === 'ready' ? 'connected' : 'unavailable' }, 'redis status');
 });
 
 // Graceful shutdown
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, async () => {
-    console.log(`\n[md.succ.ai] ${sig} received, shutting down...`);
+    getLog().info({ signal: sig }, 'shutting down');
     await Promise.all([browserPool.close(), shutdownRedis()]);
     process.exit(0);
   });
