@@ -6,6 +6,7 @@ import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
 import { extractFromHtml } from '@extractus/article-extractor';
 import { Defuddle } from 'defuddle/node';
+import { getLog } from './logger.mjs';
 
 // ─── Constants ────────────────────────────────────────────────────────
 
@@ -428,7 +429,7 @@ export async function extractContent(html, url) {
         const extTextLen = extDoc.body?.textContent?.trim().length || 0;
         const ratio = extTextLen / rawTextLen;
         if (ratio < 0.15 && extTextLen < 1000) {
-          console.log(`[extract] ${result.method} ratio too low: ${(ratio * 100).toFixed(1)}% — trying next pass`);
+          getLog().info({ method: result.method, ratio: `${(ratio * 100).toFixed(1)}%` }, 'extraction ratio too low, trying next pass');
           continue;
         }
       }

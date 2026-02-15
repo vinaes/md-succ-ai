@@ -1,0 +1,379 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "md.succ.ai",
+    "version": "1.0.0",
+    "description": "URL to Markdown API — with fit mode, citations, YouTube transcripts, RSS/Atom feeds, batch conversion, async+webhooks, and LLM extraction.",
+    "contact": {
+      "url": "https://github.com/vinaes/md-succ-ai"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://md.succ.ai",
+      "description": "Production"
+    }
+  ],
+  "paths": {
+    "/{url}": {
+      "get": {
+        "operationId": "convertUrl",
+        "summary": "Convert URL to Markdown",
+        "description": "Fetches a URL and converts it to clean Markdown. Supports HTML pages, YouTube transcripts, RSS/Atom feeds, PDFs, DOCX, and more. Falls through tiers: fetch → browser → LLM → BaaS.",
+        "parameters": [
+          {
+            "name": "url",
+            "in": "path",
+            "required": true,
+            "description": "Target URL to convert (e.g. https://example.com). Can also be passed as ?url= query param.",
+            "schema": { "type": "string", "format": "uri" }
+          },
+          {
+            "name": "mode",
+            "in": "query",
+            "description": "Output mode. 'fit' prunes boilerplate for 30-50% fewer tokens.",
+            "schema": { "type": "string", "enum": ["fit"] }
+          },
+          {
+            "name": "links",
+            "in": "query",
+            "description": "Link format. 'citations' converts inline links to numbered references with footer.",
+            "schema": { "type": "string", "enum": ["citations"] }
+          },
+          {
+            "name": "max_tokens",
+            "in": "query",
+            "description": "Truncate output to N tokens (works with mode=fit).",
+            "schema": { "type": "integer", "minimum": 1 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Converted content",
+            "headers": {
+              "x-markdown-tokens": { "schema": { "type": "integer" }, "description": "Token count" },
+              "x-conversion-tier": { "schema": { "type": "string" }, "description": "Conversion tier used (fetch, browser, llm, baas, youtube, feed, document:pdf)" },
+              "x-conversion-time": { "schema": { "type": "integer" }, "description": "Total conversion time in ms" },
+              "x-quality-score": { "schema": { "type": "number" }, "description": "Quality score 0-1" },
+              "x-quality-grade": { "schema": { "type": "string" }, "description": "Quality grade (A-F)" },
+              "x-cache": { "schema": { "type": "string", "enum": ["hit", "miss"] }, "description": "Cache status" },
+              "x-request-id": { "schema": { "type": "string" }, "description": "Request ID for tracing" },
+              "etag": { "schema": { "type": "string" }, "description": "Content hash for conditional requests" }
+            },
+            "content": {
+              "text/markdown": {
+                "schema": { "type": "string" }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "title": { "type": "string" },
+                    "url": { "type": "string" },
+                    "content": { "type": "string", "description": "Full markdown content" },
+                    "fit_markdown": { "type": "string", "description": "Pruned markdown (always included)" },
+                    "fit_tokens": { "type": "integer" },
+                    "excerpt": { "type": "string" },
+                    "byline": { "type": "string" },
+                    "siteName": { "type": "string" },
+                    "tokens": { "type": "integer" },
+                    "tier": { "type": "string" },
+                    "readability": { "type": "boolean" },
+                    "method": { "type": "string" },
+                    "quality": {
+                      "type": "object",
+                      "properties": {
+                        "score": { "type": "number" },
+                        "grade": { "type": "string" }
+                      }
+                    },
+                    "time_ms": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "304": { "description": "Not Modified (ETag match)" },
+          "400": { "description": "Invalid URL" },
+          "403": { "description": "Blocked URL (private/internal)" },
+          "413": { "description": "Content too large" },
+          "415": { "description": "Unsupported content type" },
+          "429": { "description": "Rate limited (60 req/min per IP)" },
+          "500": { "description": "Conversion failed" }
+        }
+      }
+    },
+    "/extract": {
+      "post": {
+        "operationId": "extractSchema",
+        "summary": "Extract structured data via LLM",
+        "description": "Fetches a URL, converts to markdown, then uses an LLM to extract structured data matching the provided JSON schema. Auto-retries with headless browser for SPA/JS-heavy sites.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["url", "schema"],
+                "properties": {
+                  "url": { "type": "string", "format": "uri", "description": "Target URL to extract from" },
+                  "schema": { "type": "object", "description": "JSON Schema defining the data to extract (max 50 fields)" }
+                }
+              },
+              "example": {
+                "url": "https://example.com/product",
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "title": { "type": "string" },
+                    "price": { "type": "number" },
+                    "features": { "type": "array", "items": { "type": "string" } }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Extracted data",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "type": "object", "description": "Extracted data matching the schema" },
+                    "valid": { "type": "boolean", "description": "Whether data validates against the schema" },
+                    "errors": { "description": "Validation errors (if invalid)", "nullable": true },
+                    "url": { "type": "string" },
+                    "time_ms": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid request (missing url/schema, bad schema)" },
+          "429": { "description": "Rate limited (10 req/min per IP)" },
+          "500": { "description": "Extraction failed" }
+        }
+      }
+    },
+    "/batch": {
+      "post": {
+        "operationId": "batchConvert",
+        "summary": "Batch convert URLs",
+        "description": "Convert up to 50 URLs in parallel (10 concurrent workers, 60s per-URL timeout).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["urls"],
+                "properties": {
+                  "urls": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "maxItems": 50,
+                    "description": "URLs to convert"
+                  },
+                  "options": {
+                    "type": "object",
+                    "properties": {
+                      "mode": { "type": "string", "enum": ["fit"] },
+                      "links": { "type": "string", "enum": ["citations"] },
+                      "max_tokens": { "type": "integer" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Batch results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "url": { "type": "string" },
+                          "title": { "type": "string" },
+                          "content": { "type": "string" },
+                          "tokens": { "type": "integer" },
+                          "tier": { "type": "string" },
+                          "quality": { "type": "object" },
+                          "time_ms": { "type": "integer" },
+                          "error": { "type": "string" }
+                        }
+                      }
+                    },
+                    "total": { "type": "integer" },
+                    "total_tokens": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid request" },
+          "429": { "description": "Rate limited (5 req/min per IP)" }
+        }
+      }
+    },
+    "/async": {
+      "post": {
+        "operationId": "asyncConvert",
+        "summary": "Async conversion with optional webhook",
+        "description": "Creates a background conversion job. Returns immediately with a job ID. Poll /job/{id} for status or provide a callback_url for webhook delivery.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["url"],
+                "properties": {
+                  "url": { "type": "string", "format": "uri", "description": "URL to convert" },
+                  "options": {
+                    "type": "object",
+                    "properties": {
+                      "mode": { "type": "string", "enum": ["fit"] },
+                      "links": { "type": "string", "enum": ["citations"] },
+                      "max_tokens": { "type": "integer" }
+                    }
+                  },
+                  "callback_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "description": "HTTPS webhook URL for result delivery (3 retries with exponential backoff)"
+                  }
+                }
+              },
+              "example": {
+                "url": "https://example.com",
+                "callback_url": "https://your-api.com/webhook"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Job created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "job_id": { "type": "string" },
+                    "status": { "type": "string", "enum": ["processing"] },
+                    "poll_url": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid request" },
+          "429": { "description": "Rate limited (10 req/min per IP)" },
+          "503": { "description": "Redis unavailable (required for async)" }
+        }
+      }
+    },
+    "/job/{id}": {
+      "get": {
+        "operationId": "getJobStatus",
+        "summary": "Poll async job status",
+        "description": "Returns the current status and result of an async conversion job. Jobs expire after 1 hour.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "Job ID returned by POST /async"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string" },
+                    "url": { "type": "string" },
+                    "status": { "type": "string", "enum": ["processing", "completed", "failed"] },
+                    "result": {
+                      "type": "object",
+                      "nullable": true,
+                      "properties": {
+                        "title": { "type": "string" },
+                        "url": { "type": "string" },
+                        "content": { "type": "string" },
+                        "tokens": { "type": "integer" },
+                        "tier": { "type": "string" },
+                        "quality": { "type": "object" },
+                        "time_ms": { "type": "integer" },
+                        "method": { "type": "string" }
+                      }
+                    },
+                    "error": { "type": "string", "nullable": true },
+                    "createdAt": { "type": "integer" },
+                    "completedAt": { "type": "integer", "nullable": true }
+                  }
+                }
+              }
+            }
+          },
+          "404": { "description": "Job not found or expired" }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "operationId": "healthCheck",
+        "summary": "Health check",
+        "responses": {
+          "200": {
+            "description": "Service status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string" },
+                    "redis": { "type": "boolean" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "operationId": "getOpenApiSpec",
+        "summary": "OpenAPI 3.1 specification",
+        "responses": {
+          "200": { "description": "OpenAPI JSON spec" }
+        }
+      }
+    },
+    "/docs": {
+      "get": {
+        "operationId": "apiDocs",
+        "summary": "API reference UI (Scalar)",
+        "responses": {
+          "200": { "description": "HTML page with interactive API documentation" }
+        }
+      }
+    }
+  }
+}
