@@ -145,12 +145,12 @@ export async function incrBaasUsage(provider, credits) {
  * @returns {Promise<number>} Credits used this month
  */
 export async function getBaasUsage(provider) {
-  if (redis?.status !== 'ready') return 0;
+  if (redis?.status !== 'ready') return Infinity; // block BaaS when Redis is down
   try {
     const month = new Date().toISOString().slice(0, 7);
     const val = await redis.get(`baas:${provider}:${month}`);
     return parseInt(val || '0', 10);
   } catch {
-    return 0;
+    return Infinity; // block BaaS on Redis errors to prevent credit leaks
   }
 }
