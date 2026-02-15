@@ -112,7 +112,17 @@ npm start`}
             <div className="h-px bg-border" />
             <div className="flex flex-col sm:flex-row sm:justify-between gap-1">
               <span className="text-foreground">NANOGPT_MODEL</span>
-              <span className="text-muted-foreground">LLM model (default: llama-3.1-8b)</span>
+              <span className="text-muted-foreground">LLM model (default: llama-3.3-70b-instruct)</span>
+            </div>
+            <div className="h-px bg-border" />
+            <div className="flex flex-col sm:flex-row sm:justify-between gap-1">
+              <span className="text-foreground">REDIS_URL</span>
+              <span className="text-muted-foreground">Redis connection (default: redis://redis:6379)</span>
+            </div>
+            <div className="h-px bg-border" />
+            <div className="flex flex-col sm:flex-row sm:justify-between gap-1">
+              <span className="text-foreground">REDIS_PASSWORD</span>
+              <span className="text-muted-foreground">Redis auth (required for caching + async)</span>
             </div>
           </div>
         </div>

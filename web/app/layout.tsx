@@ -14,8 +14,8 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: 'md.succ.ai — HTML to clean Markdown API',
-  description: 'Convert any webpage to clean, readable Markdown. YouTube transcripts, citation-style links, fit_markdown mode, and structured data extraction. 9-pass extraction with Readability + Defuddle. Built for AI agents, MCP tools, and RAG pipelines. No API key required.',
-  keywords: ['markdown', 'html to markdown', 'readability', 'web scraping', 'ai agents', 'mcp', 'rag', 'succ', 'content extraction', 'web to markdown', 'url to markdown', 'playwright', 'turndown', 'llm tools', 'ai tools', 'youtube transcript', 'citation links', 'schema extraction', 'defuddle'],
+  description: 'Convert any webpage to clean, readable Markdown. YouTube transcripts, citation-style links, fit_markdown mode, structured data extraction, batch conversion, async webhooks, and RSS/Atom feeds. 9-pass extraction with Readability + Defuddle. Built for AI agents, MCP tools, and RAG pipelines. No API key required.',
+  keywords: ['markdown', 'html to markdown', 'readability', 'web scraping', 'ai agents', 'mcp', 'rag', 'succ', 'content extraction', 'web to markdown', 'url to markdown', 'playwright', 'turndown', 'llm tools', 'ai tools', 'youtube transcript', 'citation links', 'schema extraction', 'defuddle', 'batch conversion', 'async webhook', 'rss atom feed'],
   metadataBase: new URL('https://md.succ.ai'),
   alternates: {
     canonical: '/',
@@ -94,6 +94,9 @@ const jsonLdString = JSON.stringify({
         'Structured data extraction via JSON schema',
         'cl100k_base token counting',
         'Quality scoring (A-F grades)',
+        'Batch URL conversion (up to 50 URLs)',
+        'Async conversion with webhook delivery',
+        'RSS/Atom feed parsing',
         'Self-hostable with Docker',
         'No API key required',
       ],

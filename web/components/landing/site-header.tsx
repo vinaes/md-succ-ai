@@ -12,6 +12,7 @@ export function SiteHeader() {
     { href: "#try", label: "Try It" },
     { href: "#features", label: "Features" },
     { href: "#api", label: "API" },
+    { href: "/docs", label: "Docs" },
     { href: "#self-hosting", label: "Self-Hosting" },
   ]
 
