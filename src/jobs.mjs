@@ -7,6 +7,7 @@
 import { nanoid } from 'nanoid';
 import { getCache, setCache } from './redis.mjs';
 import { getLog } from './logger.mjs';
+import { webhookDeliveriesTotal } from './metrics.mjs';
 
 const JOB_TTL = 3600; // 1 hour
 const WEBHOOK_RETRIES = 3;
@@ -97,6 +98,7 @@ async function deliverWebhook(job) {
         signal: AbortSignal.timeout(10000),
       });
       if (res.ok) {
+        webhookDeliveriesTotal.inc({ status: 'success' });
         log.info({ jobId: job.id, attempt }, 'webhook delivered');
         return;
       }
@@ -108,5 +110,6 @@ async function deliverWebhook(job) {
       await new Promise(r => setTimeout(r, WEBHOOK_BACKOFF[attempt]));
     }
   }
+  webhookDeliveriesTotal.inc({ status: 'failed' });
   log.error({ jobId: job.id, callbackUrl: job.callbackUrl }, 'webhook delivery exhausted');
 }
