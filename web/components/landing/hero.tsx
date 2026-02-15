@@ -18,12 +18,6 @@ export function Hero() {
           <span className="text-xs text-border">|</span>
           <span className="text-xs font-mono text-muted-foreground">Open Source</span>
         </div>
-        <div className="flex items-center gap-2 px-4 py-2 rounded-full border border-green/30 bg-green/5">
-          <Shield className="w-3 h-3 text-green" />
-          <span className="text-xs font-mono text-green/80 tracking-wide uppercase">
-            0 CVE
-          </span>
-        </div>
       </div>
 
       {/* Logo + Title */}

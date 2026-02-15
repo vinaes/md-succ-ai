@@ -35,7 +35,7 @@ const features = [
   {
     icon: Shield,
     title: "Security Hardened",
-    description: "SSRF protection with DNS validation, private IP blocking, redirect validation. Prompt injection hardening. Schema field whitelist. 0 CVE.",
+    description: "SSRF protection with DNS validation, private IP blocking, redirect validation. Prompt injection hardening. Schema field whitelist.",
     color: "text-blue",
   },
 ]
