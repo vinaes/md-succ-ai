@@ -79,6 +79,25 @@ export const browserPoolActive = new client.Gauge({
   registers: [register],
 });
 
+export const browserLaunchesTotal = new client.Counter({
+  name: 'browser_launches_total',
+  help: 'Total Chromium browser launches/restarts',
+  registers: [register],
+});
+
+export const browserPageDuration = new client.Histogram({
+  name: 'browser_page_duration_seconds',
+  help: 'Time from newPage() to release()',
+  buckets: [0.5, 1, 2.5, 5, 10, 15, 30, 60],
+  registers: [register],
+});
+
+export const browserPoolExhaustedTotal = new client.Counter({
+  name: 'browser_pool_exhausted_total',
+  help: 'Times browser pool was exhausted',
+  registers: [register],
+});
+
 // ─── Async jobs ──────────────────────────────────────────────────────
 
 export const asyncJobsTotal = new client.Counter({

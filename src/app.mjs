@@ -188,7 +188,12 @@ export function createApp(deps = {}) {
 
   app.get('/health', (c) => {
     const redisOk = getRedisFn()?.status === 'ready';
-    return c.json({ status: 'ok', redis: redisOk });
+    const browserOk = enableBrowser ? browserPool?.isReady() : undefined;
+    return c.json({
+      status: 'ok',
+      redis: redisOk,
+      ...(browserOk !== undefined && { browser: browserOk }),
+    });
   });
 
   // POST /extract

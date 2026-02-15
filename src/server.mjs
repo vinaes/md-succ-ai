@@ -10,15 +10,21 @@
 import { serve } from '@hono/node-server';
 import { createApp } from './app.mjs';
 import { convert, extractSchema } from './convert.mjs';
-import { BrowserPool } from './browser-pool.mjs';
+import { BrowserPool, parseBrowserMode } from './browser-pool.mjs';
 import { initRedis, shutdownRedis, getRedis, checkRateLimit, getCache, setCache } from './redis.mjs';
 import { getLog } from './logger.mjs';
 import { createJob, getJob, completeJob, failJob } from './jobs.mjs';
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
-const ENABLE_BROWSER = process.env.ENABLE_BROWSER !== 'false';
+const BROWSER_MODE = parseBrowserMode(process.env.ENABLE_BROWSER);
+const ENABLE_BROWSER = BROWSER_MODE !== 'off';
 
-const browserPool = new BrowserPool();
+const browserPool = ENABLE_BROWSER
+  ? new BrowserPool({
+      mode: BROWSER_MODE,
+      wsEndpoint: process.env.BROWSER_WS_ENDPOINT || 'ws://md-browser:9222',
+    })
+  : null;
 
 const app = createApp({
   browserPool,
@@ -50,7 +56,7 @@ if (ENABLE_BROWSER) {
 serve({ fetch: app.fetch, port: PORT }, () => {
   const log = getLog();
   log.info({ port: PORT }, 'listening');
-  log.info({ browser: ENABLE_BROWSER }, 'browser fallback');
+  log.info({ browser: BROWSER_MODE }, 'browser mode');
   log.info({ redis: getRedis()?.status === 'ready' ? 'connected' : 'unavailable' }, 'redis status');
 });
 
@@ -58,7 +64,7 @@ serve({ fetch: app.fetch, port: PORT }, () => {
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, async () => {
     getLog().info({ signal: sig }, 'shutting down');
-    await Promise.all([browserPool.close(), shutdownRedis()]);
+    await Promise.all([browserPool?.close(), shutdownRedis()]);
     process.exit(0);
   });
 }
