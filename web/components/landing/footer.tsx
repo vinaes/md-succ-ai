@@ -9,7 +9,6 @@ const links = {
     { label: "Self-Hosting", href: "#self-hosting" },
   ],
   resources: [
-    { label: "GitHub", href: "https://github.com/vinaes/md-succ-ai", external: true },
     { label: "Issues", href: "https://github.com/vinaes/md-succ-ai/issues", external: true },
     { label: "API Health", href: "https://md.succ.ai/health", external: true },
   ],
@@ -31,7 +30,7 @@ export function Footer() {
               <span className="text-xl font-bold text-foreground">md.succ.ai</span>
             </div>
             <p className="text-sm text-muted-foreground mb-4 leading-relaxed">
-              HTML to clean Markdown API. Part of the succ ecosystem.
+              URL to Markdown API. Part of the succ ecosystem.
             </p>
             <Link
               href="https://github.com/vinaes/md-succ-ai"

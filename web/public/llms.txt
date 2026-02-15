@@ -4,7 +4,7 @@
 
 ## What it does
 
-md.succ.ai converts any URL to clean Markdown using a 9-pass extraction pipeline (Readability, Defuddle, article-extractor, CSS selectors, Schema.org, Open Graph, text density, and more). It strips navigation, sidebars, footers, and ads — returning only the article content. YouTube URLs return transcripts with timestamps.
+md.succ.ai converts any URL to clean Markdown using a 9-pass extraction pipeline (Readability, Defuddle, article-extractor, CSS selectors, Schema.org, Open Graph, text density, and more). It strips navigation, sidebars, footers, and ads - returning only the article content. YouTube URLs return transcripts with timestamps.
 
 ## API Usage
 
@@ -12,16 +12,16 @@ No API key required. No authentication. No rate limits for reasonable use.
 
 ### Endpoints
 
-- GET https://md.succ.ai/{url} — convert URL to Markdown
-- GET https://md.succ.ai/?url={url} — query param format
-- POST https://md.succ.ai/extract — structured data extraction (JSON schema)
-- GET https://md.succ.ai/health — health check
+- GET https://md.succ.ai/{url} - convert URL to Markdown
+- GET https://md.succ.ai/?url={url} - query param format
+- POST https://md.succ.ai/extract - structured data extraction (JSON schema)
+- GET https://md.succ.ai/health - health check
 
 ### Query Parameters
 
-- ?links=citations — convert inline links to numbered references with footer
-- ?mode=fit — prune boilerplate for LLM-optimized output
-- ?max_tokens=N — truncate output to N tokens
+- ?links=citations - convert inline links to numbered references with footer
+- ?mode=fit - prune boilerplate for LLM-optimized output
+- ?max_tokens=N - truncate output to N tokens
 
 ### Examples
 
@@ -74,22 +74,22 @@ curl -X POST https://md.succ.ai/extract \
 
 ## Pipeline
 
-1. **YouTube detection**: YouTube URLs bypass HTML pipeline — transcript extracted via innertube API
+1. **YouTube detection**: YouTube URLs bypass HTML pipeline - transcript extracted via innertube API
 2. **Document detection**: PDF, DOCX, XLSX, CSV detected by Content-Type or extension
 3. **Tier 1 (fast)**: 9-pass extraction pipeline (200-500ms) with quality ratio checks
 4. **Tier 2 (browser)**: Playwright headless Chromium for SPAs and JS-heavy sites (3-15s)
 5. **Tier 2.5 (LLM)**: Llama 3.3 70B via nano-gpt when quality < B
 
-Automatic tier escalation — no configuration needed.
+Automatic tier escalation - no configuration needed.
 
 ## Supported Formats
 
-- HTML — 9-pass extraction + Turndown
-- PDF — text extraction via unpdf
-- DOCX — mammoth → HTML → Turndown
-- XLSX/XLS — SheetJS → Markdown tables
-- CSV — SheetJS → Markdown table
-- YouTube — transcript with timestamps
+- HTML - 9-pass extraction + Turndown
+- PDF - text extraction via unpdf
+- DOCX - mammoth -> HTML -> Turndown
+- XLSX/XLS - SheetJS -> Markdown tables
+- CSV - SheetJS -> Markdown table
+- YouTube - transcript with timestamps
 
 ## Self-Hosting
 
