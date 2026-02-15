@@ -13,6 +13,12 @@ import { BrowserPool } from './browser-pool.mjs';
 import { initRedis, shutdownRedis, getRedis, checkRateLimit, getCache, setCache } from './redis.mjs';
 import { withRequestContext, getLog } from './logger.mjs';
 import { createJob, getJob, completeJob, failJob } from './jobs.mjs';
+import {
+  register, httpRequestsTotal, httpRequestDuration,
+  conversionTierTotal, conversionTokens, conversionQuality,
+  cacheHitsTotal, cacheMissesTotal, rateLimitRejectionsTotal,
+  browserPoolActive, asyncJobsTotal, webhookDeliveriesTotal,
+} from './metrics.mjs';
 
 const app = new Hono();
 const browserPool = new BrowserPool();
@@ -145,6 +151,17 @@ app.use('*', async (c, next) => {
   await withRequestContext({ reqId, ip: getClientIp(c) }, () => next());
 });
 
+// Prometheus request timing (skip /metrics to avoid self-instrumentation)
+app.use('*', async (c, next) => {
+  const end = httpRequestDuration.startTimer();
+  await next();
+  if (c.req.path === '/metrics') return;
+  const route = c.req.routePath || 'unknown';
+  const labels = { method: c.req.method, route, status: String(c.res.status) };
+  end(labels);
+  httpRequestsTotal.inc(labels);
+});
+
 // Security headers
 app.use('*', async (c, next) => {
   await next();
@@ -191,6 +208,7 @@ app.post('/extract', async (c) => {
   c.header('x-ratelimit-reset', String(Math.ceil(Date.now() / 1000) + 60));
 
   if (!rl.allowed) {
+    rateLimitRejectionsTotal.inc({ route: '/extract' });
     return c.json({ error: 'Rate limited: max 10 extract requests per minute' }, 429);
   }
 
@@ -275,6 +293,7 @@ app.post('/batch', async (c) => {
   c.header('x-ratelimit-reset', String(Math.ceil(Date.now() / 1000) + 60));
 
   if (!rl.allowed) {
+    rateLimitRejectionsTotal.inc({ route: '/batch' });
     return c.json({ error: 'Rate limited: max 5 batch requests per minute' }, 429);
   }
 
@@ -392,6 +411,7 @@ app.post('/async', async (c) => {
   c.header('x-ratelimit-reset', String(Math.ceil(Date.now() / 1000) + 60));
 
   if (!rl.allowed) {
+    rateLimitRejectionsTotal.inc({ route: '/async' });
     return c.json({ error: 'Rate limited: max 10 async requests per minute' }, 429);
   }
 
@@ -453,6 +473,7 @@ app.post('/async', async (c) => {
   const job = await createJob(validUrl, options || {}, callbackUrl);
   const log = getLog();
   const reqCtx = { reqId: c.get('requestId'), ip: getClientIp(c) };
+  asyncJobsTotal.inc({ status: 'created' });
   log.info({ jobId: job.id, url: validUrl, callback: !!callbackUrl }, 'async job created');
 
   // Process in background — wrap with request context so downstream getLog() retains reqId
@@ -461,11 +482,13 @@ app.post('/async', async (c) => {
       const pool = ENABLE_BROWSER ? browserPool : null;
       const result = await convert(validUrl, pool, options || {});
       await completeJob(job.id, result);
+      asyncJobsTotal.inc({ status: 'completed' });
       log.info({ jobId: job.id, tokens: result.tokens, tier: result.tier }, 'async job completed');
     } catch (err) {
       try {
         await failJob(job.id, sanitizeError(err.message));
       } catch {}
+      asyncJobsTotal.inc({ status: 'failed' });
       log.error({ jobId: job.id, err: err.message }, 'async job failed');
     }
   }).catch((err) => log.error({ jobId: job.id, err: err.message }, 'async job unhandled error'));
@@ -505,6 +528,14 @@ app.get('/docs', (c) => {
 </html>`);
 });
 
+// ─── GET /metrics — Prometheus metrics ───────────────────────────────
+app.get('/metrics', async (c) => {
+  // Update browser pool gauge
+  browserPoolActive.set(browserPool.active || 0);
+  c.header('content-type', register.contentType);
+  return c.body(await register.metrics());
+});
+
 // ─── GET /* — main conversion endpoint ──────────────────────────────
 // Also handles: GET /https://example.com/path
 // Known API params — everything else belongs to the target URL
@@ -523,6 +554,7 @@ app.get('/*', async (c) => {
   c.header('x-ratelimit-reset', String(Math.ceil(Date.now() / 1000) + 60));
 
   if (!rl.allowed) {
+    rateLimitRejectionsTotal.inc({ route: '/*' });
     return c.json({ error: 'Rate limited: max 60 requests per minute' }, 429);
   }
 
@@ -620,8 +652,10 @@ app.get('/*', async (c) => {
 
     if (hit) {
       result = hit.result;
+      cacheHitsTotal.inc({ source: hit.source });
       getLog().info({ url: safeLog(targetUrl), tokens: result.tokens, cache: hit.source }, 'cache hit');
     } else {
+      cacheMissesTotal.inc();
       getLog().info({ url: safeLog(targetUrl) }, 'request');
       const pool = ENABLE_BROWSER ? browserPool : null;
       const options = {
@@ -636,6 +670,9 @@ app.get('/*', async (c) => {
       await setCachedResult(cacheKey, result, ttl);
 
       const q = result.quality || { score: 0, grade: 'F' };
+      conversionTierTotal.inc({ tier: result.tier });
+      conversionTokens.observe({ tier: result.tier }, result.tokens);
+      conversionQuality.observe({ tier: result.tier }, q.score);
       getLog().info({ tier: result.tier, tokens: result.tokens, ms: result.totalMs, grade: q.grade, score: q.score, method: result.method || 'unknown' }, 'ok');
     }
 
