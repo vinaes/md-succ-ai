@@ -1,6 +1,6 @@
 # md.succ.ai
 
-> HTML to clean Markdown API. Convert any webpage, document, or YouTube video to readable Markdown optimized for AI consumption.
+> URL to Markdown API. Convert any webpage, document, or YouTube video to readable Markdown optimized for AI consumption.
 
 ## What it does
 
@@ -8,12 +8,13 @@ md.succ.ai converts any URL to clean Markdown using a 9-pass extraction pipeline
 
 ## API Usage
 
-No API key required. No authentication. No rate limits for reasonable use.
+No API key required. No authentication. Rate limits: 60 req/min (convert), 10 req/min (extract), 5 req/min (batch).
 
 ### Endpoints
 
 - GET https://md.succ.ai/{url} - convert URL to Markdown
 - GET https://md.succ.ai/?url={url} - query param format
+- POST https://md.succ.ai/batch - batch convert multiple URLs
 - POST https://md.succ.ai/extract - structured data extraction (JSON schema)
 - GET https://md.succ.ai/health - health check
 
@@ -37,6 +38,11 @@ curl "https://md.succ.ai/?url=https://en.wikipedia.org/wiki/Markdown&links=citat
 
 # LLM-optimized
 curl "https://md.succ.ai/?url=https://htmx.org/docs/&mode=fit"
+
+# Batch conversion (up to 50 URLs)
+curl -X POST https://md.succ.ai/batch \
+  -H "Content-Type: application/json" \
+  -d '{"urls": ["https://example.com", "https://httpbin.org/html"], "options": {"mode": "fit"}}'
 
 # Structured extraction
 curl -X POST https://md.succ.ai/extract \
@@ -62,6 +68,19 @@ curl -X POST https://md.succ.ai/extract \
 }
 ```
 
+### Batch Response
+
+```json
+{
+  "results": [
+    { "url": "https://example.com", "title": "Example Domain", "content": "...", "tokens": 33, "tier": "fetch", "quality": {"score": 0.85, "grade": "A"}, "time_ms": 245 },
+    { "url": "https://httpbin.org/html", "title": "...", "content": "...", "tokens": 120, "tier": "fetch", "quality": {"score": 0.9, "grade": "A"}, "time_ms": 310 }
+  ],
+  "total": 2,
+  "total_tokens": 153
+}
+```
+
 ### Response Headers
 
 - x-markdown-tokens: cl100k_base token count
@@ -71,6 +90,24 @@ curl -X POST https://md.succ.ai/extract \
 - x-quality-score: quality score 0-1
 - x-quality-grade: quality grade A-F
 - x-cache: hit | miss
+- etag: content hash for conditional requests (use If-None-Match for 304)
+- x-ratelimit-limit: max requests per minute
+- x-ratelimit-remaining: requests remaining in current window
+- x-ratelimit-reset: Unix timestamp when window resets
+
+### Conditional Requests (ETag)
+
+Responses include an ETag header. Send If-None-Match with the ETag value to receive a 304 Not Modified if content hasn't changed. Saves bandwidth on repeated requests.
+
+```
+# First request - get the ETag
+curl -sI https://md.succ.ai/https://example.com
+# -> etag: W/"a1b2c3d4..."
+
+# Subsequent request - check if content changed
+curl -H 'If-None-Match: W/"a1b2c3d4..."' https://md.succ.ai/https://example.com
+# -> 304 Not Modified (no body, saves bandwidth)
+```
 
 ## Pipeline
 
@@ -81,6 +118,16 @@ curl -X POST https://md.succ.ai/extract \
 5. **Tier 2.5 (LLM)**: Llama 3.3 70B via nano-gpt when quality < B
 
 Automatic tier escalation - no configuration needed.
+
+## Caching
+
+Responses are cached with tier-appropriate TTL:
+- YouTube transcripts: 1 hour (content rarely changes)
+- PDF/DOCX/XLSX: 2 hours (documents are immutable)
+- Browser tier: 10 minutes
+- Fetch tier: 5 minutes (default)
+
+Cache-Control header reflects the actual TTL. Tracking params (utm_*, fbclid, gclid) are stripped from cache keys.
 
 ## Supported Formats
 
@@ -108,7 +155,7 @@ Available at localhost:3100. Docker image includes Chromium.
 - Content extraction for LLM context windows
 - YouTube transcript extraction for video summarization
 - Structured data extraction from any webpage
-- Web research automation
+- Batch processing for web research automation
 - Documentation scraping
 
 ## Technology

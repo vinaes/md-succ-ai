@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Hono } from 'hono';
+import { compress } from 'hono/compress';
 import { serve } from '@hono/node-server';
 
 /** Short SHA-256 hash for cache keys — collision-resistant, no poisoning */
@@ -17,25 +18,26 @@ const ENABLE_BROWSER = process.env.ENABLE_BROWSER !== 'false';
 
 // ─── In-memory result cache (fallback when Redis is down) ───────────
 const memCache = new Map();
-const CACHE_TTL = 5 * 60 * 1000;  // 5 minutes
+const CACHE_TTL = 5 * 60 * 1000;  // 5 minutes (default)
 const CACHE_MAX = 200;
 
 function getMemCached(key) {
   const entry = memCache.get(key);
   if (!entry) return null;
-  if (Date.now() - entry.ts > CACHE_TTL) {
+  const ttl = entry.ttl || CACHE_TTL;
+  if (Date.now() - entry.ts > ttl) {
     memCache.delete(key);
     return null;
   }
   return entry.result;
 }
 
-function setMemCache(key, result) {
+function setMemCache(key, result, ttlMs = CACHE_TTL) {
   if (memCache.size >= CACHE_MAX) {
     const oldest = memCache.keys().next().value;
     memCache.delete(oldest);
   }
-  memCache.set(key, { result, ts: Date.now() });
+  memCache.set(key, { result, ts: Date.now(), ttl: ttlMs });
 }
 
 // ─── Dual-layer cache: Redis → in-memory fallback ──────────────────
@@ -54,7 +56,25 @@ async function getCachedResult(cacheKey) {
 async function setCachedResult(cacheKey, result, ttlSec = 300) {
   // Write to both layers
   await setCache(cacheKey, result, ttlSec);
-  setMemCache(cacheKey, result);
+  setMemCache(cacheKey, result, ttlSec * 1000);
+}
+
+// ─── Cache TTL by conversion tier ───────────────────────────────────
+function getTtlForTier(tier) {
+  if (tier === 'youtube') return 3600;                              // 1 hour — transcripts rarely change
+  if (tier?.startsWith('document:')) return 7200;                   // 2 hours — PDFs/DOCX immutable
+  if (tier === 'browser' || tier?.includes('browser')) return 600;  // 10 min — SPA content
+  return 300;                                                       // 5 min — fetch/llm/baas
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────
+
+/** Extract client IP — Cloudflare → nginx → forwarded-for (leftmost = original client) */
+function getClientIp(c) {
+  return c.req.header('cf-connecting-ip')
+    || c.req.header('x-real-ip')
+    || c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
+    || 'unknown';
 }
 
 /**
@@ -105,8 +125,13 @@ function sanitizeUrl(url) {
   }
 }
 
+// ─── Middleware ──────────────────────────────────────────────────────
+
 // CORS — allow all origins (public API)
 app.use('*', cors());
+
+// Gzip compression
+app.use('*', compress());
 
 // Security headers
 app.use('*', async (c, next) => {
@@ -134,7 +159,7 @@ function isExtractEmpty(result) {
   return true;
 }
 
-// LLM schema extraction: POST /extract
+// ─── POST /extract — LLM schema extraction ─────────────────────────
 // Rate-limited: max 10 requests per minute per IP (LLM calls are expensive)
 const EXTRACT_RATE_LIMIT = 10;
 
@@ -145,13 +170,14 @@ app.post('/extract', async (c) => {
     return c.json({ error: 'Request body too large (max 64KB)' }, 413);
   }
 
-  // Rate limiting per IP — Cloudflare → nginx → forwarded-for fallback
-  const ip = c.req.header('cf-connecting-ip')
-    || c.req.header('x-real-ip')
-    || c.req.header('x-forwarded-for')?.split(',').pop()?.trim()
-    || 'unknown';
+  const ip = getClientIp(c);
+  const rl = await checkRateLimit(`rl:extract:${ip}`, EXTRACT_RATE_LIMIT, 60);
 
-  const rl = await checkRateLimit(`rl:${ip}`, EXTRACT_RATE_LIMIT, 60);
+  // Rate limit headers
+  c.header('x-ratelimit-limit', String(EXTRACT_RATE_LIMIT));
+  c.header('x-ratelimit-remaining', String(rl.remaining));
+  c.header('x-ratelimit-reset', String(Math.ceil(Date.now() / 1000) + 60));
+
   if (!rl.allowed) {
     return c.json({ error: 'Rate limited: max 10 extract requests per minute' }, 429);
   }
@@ -223,12 +249,146 @@ app.post('/extract', async (c) => {
   }
 });
 
-// Main endpoint: GET /:url
+// ─── POST /batch — batch URL conversion ─────────────────────────────
+const BATCH_RATE_LIMIT = 5;
+const BATCH_MAX_URLS = 50;
+const BATCH_CONCURRENCY = 10;
+
+app.post('/batch', async (c) => {
+  const ip = getClientIp(c);
+
+  const rl = await checkRateLimit(`rl:batch:${ip}`, BATCH_RATE_LIMIT, 60);
+  c.header('x-ratelimit-limit', String(BATCH_RATE_LIMIT));
+  c.header('x-ratelimit-remaining', String(rl.remaining));
+  c.header('x-ratelimit-reset', String(Math.ceil(Date.now() / 1000) + 60));
+
+  if (!rl.allowed) {
+    return c.json({ error: 'Rate limited: max 5 batch requests per minute' }, 429);
+  }
+
+  // Body size guard
+  const contentLength = parseInt(c.req.header('content-length') || '0', 10);
+  if (contentLength > 131072) {
+    return c.json({ error: 'Request body too large (max 128KB)' }, 413);
+  }
+
+  let body;
+  try { body = await c.req.json(); } catch {
+    return c.json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const { urls, options } = body || {};
+  if (!Array.isArray(urls) || urls.length === 0) {
+    return c.json({ error: 'Required: urls (non-empty array of strings)' }, 400);
+  }
+  if (urls.length > BATCH_MAX_URLS) {
+    return c.json({ error: `Max ${BATCH_MAX_URLS} URLs per batch` }, 400);
+  }
+
+  for (const u of urls) {
+    if (typeof u !== 'string') {
+      return c.json({ error: 'Each url must be a string' }, 400);
+    }
+  }
+
+  const pool = ENABLE_BROWSER ? browserPool : null;
+  const convertOpts = {
+    mode: options?.mode,
+    links: options?.links,
+    maxTokens: options?.max_tokens ? parseInt(String(options.max_tokens), 10) : undefined,
+  };
+
+  // Validate all URLs upfront (same checks as main endpoint)
+  const validatedUrls = [];
+  for (let i = 0; i < urls.length; i++) {
+    let targetUrl = urls[i].startsWith('http') ? urls[i] : `https://${urls[i]}`;
+    try {
+      const u = new URL(targetUrl);
+      // Only allow http(s) — block file://, javascript://, ftp:// etc.
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+        validatedUrls.push({ i, url: targetUrl, error: 'Only http/https URLs are supported' });
+        continue;
+      }
+      validatedUrls.push({ i, url: targetUrl });
+    } catch {
+      validatedUrls.push({ i, url: targetUrl, error: 'Invalid URL' });
+    }
+  }
+
+  // Process with concurrency limit (work-stealing queue)
+  // Per-URL timeout: 60s to prevent single URL from blocking the batch
+  const PER_URL_TIMEOUT = 60_000;
+  const results = new Array(urls.length);
+  let nextIdx = 0;
+  const workers = [];
+
+  // Pre-fill validation errors
+  for (const v of validatedUrls) {
+    if (v.error) {
+      results[v.i] = { url: v.url, error: v.error };
+    }
+  }
+
+  const validItems = validatedUrls.filter(v => !v.error);
+
+  for (let w = 0; w < Math.min(BATCH_CONCURRENCY, validItems.length); w++) {
+    workers.push((async () => {
+      while (nextIdx < validItems.length) {
+        const idx = nextIdx++;
+        if (idx >= validItems.length) break;
+        const { i, url: targetUrl } = validItems[idx];
+        try {
+          const result = await Promise.race([
+            convert(targetUrl, pool, convertOpts),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('Conversion timeout')), PER_URL_TIMEOUT)),
+          ]);
+          const q = result.quality || { score: 0, grade: 'F' };
+          results[i] = {
+            url: targetUrl,
+            title: result.title,
+            content: result.markdown,
+            tokens: result.tokens,
+            tier: result.tier,
+            quality: q,
+            time_ms: result.totalMs,
+          };
+        } catch (err) {
+          results[i] = {
+            url: targetUrl,
+            error: sanitizeError(err.message),
+          };
+        }
+      }
+    })());
+  }
+
+  await Promise.all(workers);
+
+  const totalTokens = results.reduce((sum, r) => sum + (r.tokens || 0), 0);
+  return c.json({ results, total: urls.length, total_tokens: totalTokens });
+});
+
+// ─── GET /* — main conversion endpoint ──────────────────────────────
 // Also handles: GET /https://example.com/path
 // Known API params — everything else belongs to the target URL
 const API_PARAMS = new Set(['url', 'mode', 'links', 'max_tokens']);
 
+// Rate limit: 60 req/min per IP
+const MAIN_RATE_LIMIT = 60;
+
 app.get('/*', async (c) => {
+  // Rate limiting
+  const ip = getClientIp(c);
+  const rl = await checkRateLimit(`rl:main:${ip}`, MAIN_RATE_LIMIT, 60);
+
+  c.header('x-ratelimit-limit', String(MAIN_RATE_LIMIT));
+  c.header('x-ratelimit-remaining', String(rl.remaining));
+  c.header('x-ratelimit-reset', String(Math.ceil(Date.now() / 1000) + 60));
+
+  if (!rl.allowed) {
+    return c.json({ error: 'Rate limited: max 60 requests per minute' }, 429);
+  }
+
   // Extract our API params before reconstructing target URL
   const apiMode = c.req.query('mode') || undefined;
   const apiLinks = c.req.query('links') || undefined;
@@ -269,7 +429,7 @@ app.get('/*', async (c) => {
     return c.json(
       {
         name: 'md.succ.ai',
-        description: 'HTML to clean Markdown API — with fit mode, citations, YouTube transcripts, and LLM extraction',
+        description: 'URL to Markdown API — with fit mode, citations, YouTube transcripts, batch conversion, and LLM extraction',
         usage: 'GET /https://example.com or GET /?url=https://example.com',
         params: {
           mode: 'fit — pruned markdown optimized for LLMs (30-50% fewer tokens)',
@@ -279,12 +439,14 @@ app.get('/*', async (c) => {
         endpoints: {
           'GET /': 'Convert URL to markdown',
           'POST /extract': 'Extract structured data via LLM (body: {url, schema})',
+          'POST /batch': 'Batch convert URLs (body: {urls, options?})',
           'GET /health': 'Health check',
         },
         headers: {
           'x-markdown-tokens': 'Token count in response',
           'x-conversion-tier': 'fetch | browser | baas:provider | youtube',
           'x-conversion-time': 'Total conversion time in ms',
+          'x-ratelimit-remaining': 'Requests remaining in current window',
         },
         source: 'https://github.com/vinaes/md-succ-ai',
         powered_by: 'https://succ.ai',
@@ -308,8 +470,9 @@ app.get('/*', async (c) => {
   try {
     // Check cache first (anti-amplification)
     // Include options in cache key — different mode/links/maxTokens = different result
+    // Use normalizeCacheKey to strip tracking params (utm_*, fbclid, gclid)
     const optionsSuffix = [apiMode, apiLinks, apiMaxTokens].filter(Boolean).join('|');
-    const cacheKey = `cache:${hashKey(targetUrl + '|' + optionsSuffix)}`;
+    const cacheKey = `cache:${hashKey(normalizeCacheKey(targetUrl) + '|' + optionsSuffix)}`;
     const hit = await getCachedResult(cacheKey);
     const isCacheHit = !!hit;
     let result;
@@ -326,17 +489,22 @@ app.get('/*', async (c) => {
         maxTokens: apiMaxTokens,
       };
       result = await convert(targetUrl, pool, options);
-      await setCachedResult(cacheKey, result, 300);
+
+      // Dynamic TTL based on conversion tier
+      const ttl = getTtlForTier(result.tier);
+      await setCachedResult(cacheKey, result, ttl);
+
       const q = result.quality || { score: 0, grade: 'F' };
       console.log(`[ok]  ${result.tier} ${result.tokens}tok ${result.totalMs}ms ${q.grade}(${q.score}) ${result.method || 'unknown'}`);
     }
 
     const q = result.quality || { score: 0, grade: 'F' };
+    const ttl = getTtlForTier(result.tier);
 
     // Response format based on Accept header
     const accept = c.req.header('accept') || '';
 
-    // Set common headers
+    // Set common headers (before ETag check — 304 must include these)
     c.header('x-markdown-tokens', String(result.tokens));
     c.header('x-conversion-tier', result.tier);
     c.header('x-conversion-time', String(result.totalMs));
@@ -345,8 +513,18 @@ app.get('/*', async (c) => {
     c.header('x-quality-score', String(q.score));
     c.header('x-quality-grade', q.grade);
     c.header('x-cache', isCacheHit ? 'hit' : 'miss');
-    c.header('vary', 'accept');
-    c.header('cache-control', 'public, max-age=300');
+    c.header('vary', 'accept, accept-encoding');
+    c.header('cache-control', `public, max-age=${ttl}`);
+
+    // ETag from content hash
+    const etag = `W/"${hashKey(result.markdown)}"`;
+    c.header('etag', etag);
+
+    // 304 Not Modified
+    const ifNoneMatch = c.req.header('if-none-match');
+    if (ifNoneMatch === etag) {
+      return c.body(null, 304);
+    }
 
     // JSON response
     if (accept.includes('application/json')) {
