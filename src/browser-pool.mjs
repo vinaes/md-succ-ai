@@ -4,7 +4,10 @@ import {
   browserLaunchesTotal,
   browserPageDuration,
   browserPoolExhaustedTotal,
+  proxyRequestsTotal,
 } from './metrics.mjs';
+import { getRandomUA } from './ua-pool.mjs';
+import { ProxyPool } from './proxy-pool.mjs';
 
 const MAX_CONCURRENT = 3;
 
@@ -63,6 +66,7 @@ function isPrivateHost(hostname) {
  * Browser pool — supports local (in-process Chromium) and remote (CDP sidecar) modes.
  * Launches/connects once, reuses for all requests. Reconnects on crash.
  * Limits concurrent contexts to MAX_CONCURRENT.
+ * Supports per-context proxy rotation and UA randomization.
  */
 export class BrowserPool {
   constructor(options = {}) {
@@ -71,7 +75,9 @@ export class BrowserPool {
     this.active = 0;
     this.mode = options.mode || 'local';
     this.wsEndpoint = options.wsEndpoint || '';
+    this.proxyPool = options.proxyPool || null;
     this._pageTimers = new WeakMap();
+    this._pageProxies = new WeakMap();  // page → proxy url (for health tracking)
   }
 
   async init() {
@@ -101,7 +107,12 @@ export class BrowserPool {
   }
 
   async _launchLocal() {
-    return chromium.launch({ headless: true, args: CHROMIUM_ARGS });
+    const launchOpts = { headless: true, args: CHROMIUM_ARGS };
+    // Enable per-context proxy when proxies are configured
+    if (this.proxyPool?.size) {
+      launchOpts.proxy = { server: 'per-context' };
+    }
+    return chromium.launch(launchOpts);
   }
 
   async _connectRemote() {
@@ -120,6 +131,30 @@ export class BrowserPool {
     return chromium.connect(actualWs);
   }
 
+  /**
+   * Build context options with rotated UA and optional proxy.
+   * @returns {{ contextOpts: object, proxyUrl: string|null }}
+   */
+  _getContextOptions() {
+    const contextOpts = {
+      userAgent: getRandomUA(),
+      viewport: { width: 1280, height: 720 },
+      locale: 'en-US',
+    };
+
+    let proxyUrl = null;
+
+    if (this.proxyPool?.size) {
+      const proxy = this.proxyPool.getNext();
+      if (proxy) {
+        contextOpts.proxy = ProxyPool.parseForPlaywright(proxy.url);
+        proxyUrl = proxy.url;
+      }
+    }
+
+    return { contextOpts, proxyUrl };
+  }
+
   async newPage() {
     if (this.active >= MAX_CONCURRENT) {
       browserPoolExhaustedTotal.inc();
@@ -135,12 +170,8 @@ export class BrowserPool {
     const stopTimer = browserPageDuration.startTimer();
 
     try {
-      const context = await this.browser.newContext({
-        userAgent:
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        viewport: { width: 1280, height: 720 },
-        locale: 'en-US',
-      });
+      const { contextOpts, proxyUrl } = this._getContextOptions();
+      const context = await this.browser.newContext(contextOpts);
 
       // Block sub-requests to private/internal addresses (SSRF protection)
       await context.route('**/*', (route) => {
@@ -156,6 +187,7 @@ export class BrowserPool {
 
       const page = await context.newPage();
       this._pageTimers.set(page, stopTimer);
+      if (proxyUrl) this._pageProxies.set(page, proxyUrl);
       return page;
     } catch (e) {
       this.active--;
@@ -164,13 +196,29 @@ export class BrowserPool {
     }
   }
 
-  release(page) {
+  /**
+   * Release a page back to the pool.
+   * @param {object} page
+   * @param {boolean} [success=true] Whether the page operation succeeded (for proxy health tracking)
+   */
+  release(page, success = true) {
     if (this.active > 0) this.active--;
     if (page) {
       const stopTimer = this._pageTimers.get(page);
       if (stopTimer) {
         stopTimer();
         this._pageTimers.delete(page);
+      }
+      const proxyUrl = this._pageProxies.get(page);
+      if (proxyUrl && this.proxyPool) {
+        if (success) {
+          this.proxyPool.markSuccess(proxyUrl);
+          proxyRequestsTotal.inc({ result: 'success' });
+        } else {
+          this.proxyPool.markFailed(proxyUrl);
+          proxyRequestsTotal.inc({ result: 'fail' });
+        }
+        this._pageProxies.delete(page);
       }
     }
   }
@@ -185,6 +233,7 @@ export class BrowserPool {
       this.browser = null;
       this.active = 0;
       this._pageTimers = new WeakMap();
+      this._pageProxies = new WeakMap();
       getLog().info('chromium closed');
     }
   }

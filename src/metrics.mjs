@@ -98,6 +98,21 @@ export const browserPoolExhaustedTotal = new client.Counter({
   registers: [register],
 });
 
+// ─── Proxy pool ─────────────────────────────────────────────────────
+
+export const proxyRequestsTotal = new client.Counter({
+  name: 'proxy_requests_total',
+  help: 'Proxy requests by result',
+  labelNames: ['result'],  // 'success', 'fail', 'direct'
+  registers: [register],
+});
+
+export const proxyPoolHealthy = new client.Gauge({
+  name: 'proxy_pool_healthy',
+  help: 'Number of healthy (non-cooldown) proxies',
+  registers: [register],
+});
+
 // ─── Async jobs ──────────────────────────────────────────────────────
 
 export const asyncJobsTotal = new client.Counter({

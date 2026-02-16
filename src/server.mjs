@@ -11,6 +11,7 @@ import { serve } from '@hono/node-server';
 import { createApp } from './app.mjs';
 import { convert, extractSchema } from './convert.mjs';
 import { BrowserPool, parseBrowserMode } from './browser-pool.mjs';
+import { getProxyPool } from './proxy-pool.mjs';
 import { initRedis, shutdownRedis, getRedis, checkRateLimit, getCache, setCache } from './redis.mjs';
 import { getLog } from './logger.mjs';
 import { createJob, getJob, completeJob, failJob } from './jobs.mjs';
@@ -18,11 +19,13 @@ import { createJob, getJob, completeJob, failJob } from './jobs.mjs';
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const BROWSER_MODE = parseBrowserMode(process.env.ENABLE_BROWSER);
 const ENABLE_BROWSER = BROWSER_MODE !== 'off';
+const proxyPool = getProxyPool();
 
 const browserPool = ENABLE_BROWSER
   ? new BrowserPool({
       mode: BROWSER_MODE,
       wsEndpoint: process.env.BROWSER_WS_ENDPOINT || 'ws://md-browser:9222',
+      proxyPool,
     })
   : null;
 

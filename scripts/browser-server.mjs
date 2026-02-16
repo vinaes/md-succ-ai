@@ -8,6 +8,7 @@ import { createServer } from 'node:http';
 
 const CDP_PORT = parseInt(process.env.CDP_PORT || '9222', 10);
 const HEALTH_PORT = parseInt(process.env.HEALTH_PORT || '9223', 10);
+const HAS_PROXIES = !!(process.env.PROXY_URLS || '').trim() || !!(process.env.PROXY_FILE || '').trim();
 
 let server = null;
 let launching = false;
@@ -17,7 +18,7 @@ async function launchServer() {
   launching = true;
   try {
     console.log('[browser-server] starting Chromium...');
-    server = await chromium.launchServer({
+    const launchOpts = {
       headless: true,
       port: CDP_PORT,
       host: '0.0.0.0',
@@ -30,7 +31,13 @@ async function launchServer() {
         '--no-zygote',
         '--disable-extensions',
       ],
-    });
+    };
+    // Enable per-context proxy when PROXY_URLS is configured
+    if (HAS_PROXIES) {
+      launchOpts.proxy = { server: 'per-context' };
+      console.log('[browser-server] per-context proxy enabled');
+    }
+    server = await chromium.launchServer(launchOpts);
     console.log(`[browser-server] ready at ${server.wsEndpoint()}`);
 
     server.on('close', () => {

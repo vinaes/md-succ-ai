@@ -32,6 +32,9 @@ services:
     networks:
       - internal
     shm_size: "512mb"
+    environment:
+      - PROXY_URLS=${PROXY_URLS:-}
+      - PROXY_FILE=${PROXY_FILE:-}
     security_opt:
       - no-new-privileges:true
     deploy:
@@ -69,6 +72,8 @@ services:
       - SCRAPFLY_API_KEY=${SCRAPFLY_API_KEY:-}
       - ZENROWS_API_KEY=${ZENROWS_API_KEY:-}
       - SCRAPINGBEE_API_KEY=${SCRAPINGBEE_API_KEY:-}
+      - PROXY_URLS=${PROXY_URLS:-}
+      - PROXY_FILE=${PROXY_FILE:-}
     networks:
       - internal
     deploy:
