@@ -16,7 +16,7 @@
   "scripts": {
     "start": "node src/server.mjs",
     "dev": "node --watch src/server.mjs",
-    "test": "node --test src/**/*.test.mjs"
+    "test": "node --test src/*.test.mjs"
   },
   "dependencies": {
     "@extractus/article-extractor": "^8.0.20",
