@@ -15,7 +15,8 @@ const YOUTUBE_REGEX = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embe
 async function fetchYouTubeTranscript(videoId) {
   const INNERTUBE_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
 
-  const proxy = getProxyPool().getNext();
+  const pool = getProxyPool();
+  const proxy = pool.getNext();
   const fetchOpts = {
     method: 'POST',
     headers: {
@@ -29,11 +30,20 @@ async function fetchYouTubeTranscript(videoId) {
     signal: AbortSignal.timeout(15000),
   };
   if (proxy) fetchOpts.dispatcher = proxy.dispatcher;
-  const playerRes = await fetch(
-    `https://www.youtube.com/youtubei/v1/player?key=${INNERTUBE_KEY}&prettyPrint=false`,
-    fetchOpts,
-  );
-  if (!playerRes.ok) throw new Error(`Innertube player returned ${playerRes.status}`);
+  let playerRes;
+  try {
+    playerRes = await fetch(
+      `https://www.youtube.com/youtubei/v1/player?key=${INNERTUBE_KEY}&prettyPrint=false`,
+      fetchOpts,
+    );
+  } catch (e) {
+    if (proxy) pool.markFailed(proxy.url);
+    throw e;
+  }
+  if (!playerRes.ok) {
+    if (proxy) pool.markFailed(proxy.url);
+    throw new Error(`Innertube player returned ${playerRes.status}`);
+  }
   const playerData = await playerRes.json();
 
   const tracks = playerData?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
@@ -53,8 +63,18 @@ async function fetchYouTubeTranscript(videoId) {
 
   const captionOpts = { signal: AbortSignal.timeout(10000), redirect: 'manual' };
   if (proxy) captionOpts.dispatcher = proxy.dispatcher;
-  const xmlRes = await fetch(track.baseUrl, captionOpts);
-  if (!xmlRes.ok) throw new Error(`Timedtext returned ${xmlRes.status}`);
+  let xmlRes;
+  try {
+    xmlRes = await fetch(track.baseUrl, captionOpts);
+  } catch (e) {
+    if (proxy) pool.markFailed(proxy.url);
+    throw e;
+  }
+  if (!xmlRes.ok) {
+    if (proxy) pool.markFailed(proxy.url);
+    throw new Error(`Timedtext returned ${xmlRes.status}`);
+  }
+  if (proxy) pool.markSuccess(proxy.url);
   const xml = await xmlRes.text();
 
   // Parse XML — supports both formats:
@@ -97,9 +117,10 @@ async function fetchYouTubeTranscript(videoId) {
  * Extract title from YouTube page via oEmbed.
  */
 async function fetchYouTubeTitle(videoId) {
+  const pool = getProxyPool();
+  const proxy = pool.getNext();
   try {
     const oEmbedOpts = { signal: AbortSignal.timeout(5000), redirect: 'manual' };
-    const proxy = getProxyPool().getNext();
     if (proxy) oEmbedOpts.dispatcher = proxy.dispatcher;
     const oEmbed = await fetch(
       `https://www.youtube.com/oembed?url=${encodeURIComponent(`https://youtube.com/watch?v=${videoId}`)}&format=json`,
@@ -107,9 +128,13 @@ async function fetchYouTubeTitle(videoId) {
     );
     if (oEmbed.ok) {
       const data = await oEmbed.json();
+      if (proxy) pool.markSuccess(proxy.url);
       if (data.title) return data.title;
+    } else if (proxy) {
+      pool.markFailed(proxy.url);
     }
   } catch (e) {
+    if (proxy) pool.markFailed(proxy.url);
     getLog().warn({ videoId, err: e.message }, 'oEmbed failed');
   }
   return `YouTube Video ${videoId}`;

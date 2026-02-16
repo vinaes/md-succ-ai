@@ -150,7 +150,16 @@ export async function fetchHTML(url) {
   const proxy = pool.getNext();
   proxyPoolHealthy.set(pool.getStats().healthy);
 
-  const result = await _fetchWithProxy(url, proxy);
+  let result;
+  try {
+    result = await _fetchWithProxy(url, proxy);
+  } catch (e) {
+    if (proxy) {
+      pool.markFailed(proxy.url);
+      proxyRequestsTotal.inc({ result: 'fail' });
+    }
+    throw e;
+  }
 
   // Smart retry: on 403/503 with a proxy, try a different one before giving up
   if (proxy && (result.status === 403 || result.status === 503)) {
