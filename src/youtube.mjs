@@ -4,6 +4,7 @@
  */
 import { countTokens, scoreMarkdown } from './markdown.mjs';
 import { getLog } from './logger.mjs';
+import { getProxyPool } from './proxy-pool.mjs';
 
 const YOUTUBE_REGEX = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/;
 
@@ -14,20 +15,23 @@ const YOUTUBE_REGEX = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embe
 async function fetchYouTubeTranscript(videoId) {
   const INNERTUBE_KEY = 'AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8';
 
+  const proxy = getProxyPool().getNext();
+  const fetchOpts = {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'User-Agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14; en_US) gzip',
+    },
+    body: JSON.stringify({
+      context: { client: { clientName: 'ANDROID', clientVersion: '20.10.38', hl: 'en' } },
+      videoId,
+    }),
+    signal: AbortSignal.timeout(15000),
+  };
+  if (proxy) fetchOpts.dispatcher = proxy.dispatcher;
   const playerRes = await fetch(
     `https://www.youtube.com/youtubei/v1/player?key=${INNERTUBE_KEY}&prettyPrint=false`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 14; en_US) gzip',
-      },
-      body: JSON.stringify({
-        context: { client: { clientName: 'ANDROID', clientVersion: '20.10.38', hl: 'en' } },
-        videoId,
-      }),
-      signal: AbortSignal.timeout(15000),
-    },
+    fetchOpts,
   );
   if (!playerRes.ok) throw new Error(`Innertube player returned ${playerRes.status}`);
   const playerData = await playerRes.json();
@@ -47,7 +51,9 @@ async function fetchYouTubeTranscript(videoId) {
     throw new Error(`Unexpected caption host: ${captionUrl.hostname}`);
   }
 
-  const xmlRes = await fetch(track.baseUrl, { signal: AbortSignal.timeout(10000), redirect: 'manual' });
+  const captionOpts = { signal: AbortSignal.timeout(10000), redirect: 'manual' };
+  if (proxy) captionOpts.dispatcher = proxy.dispatcher;
+  const xmlRes = await fetch(track.baseUrl, captionOpts);
   if (!xmlRes.ok) throw new Error(`Timedtext returned ${xmlRes.status}`);
   const xml = await xmlRes.text();
 
@@ -92,9 +98,12 @@ async function fetchYouTubeTranscript(videoId) {
  */
 async function fetchYouTubeTitle(videoId) {
   try {
+    const oEmbedOpts = { signal: AbortSignal.timeout(5000), redirect: 'manual' };
+    const proxy = getProxyPool().getNext();
+    if (proxy) oEmbedOpts.dispatcher = proxy.dispatcher;
     const oEmbed = await fetch(
       `https://www.youtube.com/oembed?url=${encodeURIComponent(`https://youtube.com/watch?v=${videoId}`)}&format=json`,
-      { signal: AbortSignal.timeout(5000), redirect: 'manual' },
+      oEmbedOpts,
     );
     if (oEmbed.ok) {
       const data = await oEmbed.json();
