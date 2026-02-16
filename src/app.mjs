@@ -21,6 +21,7 @@ import {
   cacheHitsTotal, cacheMissesTotal, rateLimitRejectionsTotal,
   browserPoolActive, asyncJobsTotal, webhookDeliveriesTotal,
 } from './metrics.mjs';
+import { getProxyPool } from './proxy-pool.mjs';
 
 /** Short SHA-256 hash for cache keys — collision-resistant, no poisoning */
 const hashKey = (s) => createHash('sha256').update(s).digest('hex').slice(0, 32);
@@ -189,10 +190,12 @@ export function createApp(deps = {}) {
   app.get('/health', (c) => {
     const redisOk = getRedisFn()?.status === 'ready';
     const browserOk = enableBrowser ? browserPool?.isReady() : undefined;
+    const proxyStats = getProxyPool().getStats();
     return c.json({
       status: 'ok',
       redis: redisOk,
       ...(browserOk !== undefined && { browser: browserOk }),
+      ...(proxyStats.total > 0 && { proxy: proxyStats }),
     });
   });
 

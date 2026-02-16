@@ -21,6 +21,9 @@ import { DOCUMENT_FORMATS, detectFormatByExtension, convertDocument } from './do
 import { tryYouTube } from './youtube.mjs';
 import { getLog } from './logger.mjs';
 import { isFeedContentType, maybeFeedContentType, looksLikeFeed, parseFeed } from './feed.mjs';
+import { getProxyPool } from './proxy-pool.mjs';
+import { getRandomUA } from './ua-pool.mjs';
+import { proxyRequestsTotal, proxyPoolHealthy } from './metrics.mjs';
 
 // ─── Security ─────────────────────────────────────────────────────────
 
@@ -136,26 +139,78 @@ export async function resolveAndValidate(hostname) {
 // ─── Fetch tiers ──────────────────────────────────────────────────────
 
 /**
- * Fetch HTML via plain HTTP with manual redirect validation
+ * Fetch HTML via plain HTTP with manual redirect validation.
+ * Uses proxy rotation and UA randomization when configured.
  */
 export async function fetchHTML(url) {
   if (isBlockedUrl(url)) throw new Error('Blocked URL: private or internal address');
   await resolveAndValidate(new URL(url).hostname);
 
+  const pool = getProxyPool();
+  const proxy = pool.getNext();
+  proxyPoolHealthy.set(pool.getStats().healthy);
+
+  const result = await _fetchWithProxy(url, proxy);
+
+  // Smart retry: on 403/503 with a proxy, try a different one before giving up
+  if (proxy && (result.status === 403 || result.status === 503)) {
+    pool.markFailed(proxy.url);
+    proxyRequestsTotal.inc({ result: 'fail' });
+    const retry = pool.getNext();
+    if (retry && retry.url !== proxy.url) {
+      const retryResult = await _fetchWithProxy(url, retry).catch(() => null);
+      if (retryResult && retryResult.status < 400) {
+        pool.markSuccess(retry.url);
+        proxyRequestsTotal.inc({ result: 'success' });
+        return retryResult;
+      }
+      if (retryResult) {
+        pool.markFailed(retry.url);
+        proxyRequestsTotal.inc({ result: 'fail' });
+      }
+    }
+    // Both proxied attempts failed — throw so browser tier can take over
+    throw new Error(`HTTP ${result.status} ${result.statusText || 'Error'}`, { cause: { code: `HTTP_${result.status}` } });
+  }
+
+  // Non-retryable error (any status >= 400 without proxy, or non-403/503 with proxy)
+  if (result.status >= 400) {
+    if (proxy) pool.markFailed(proxy.url);
+    proxyRequestsTotal.inc({ result: proxy ? 'fail' : 'direct' });
+    throw new Error(`HTTP ${result.status} ${result.statusText || 'Error'}`, { cause: { code: `HTTP_${result.status}` } });
+  }
+
+  if (proxy) {
+    pool.markSuccess(proxy.url);
+    proxyRequestsTotal.inc({ result: 'success' });
+  } else {
+    proxyRequestsTotal.inc({ result: 'direct' });
+  }
+
+  return result;
+}
+
+/**
+ * Internal: perform fetch with optional proxy and UA rotation.
+ * @returns {Promise<{html?: string, raw?: string, feed?: string, buffer?: Buffer, status: number, statusText?: string}>}
+ */
+async function _fetchWithProxy(url, proxy) {
   let currentUrl = url;
 
   for (let i = 0; i <= MAX_REDIRECTS; i++) {
-    const res = await fetch(currentUrl, {
+    const fetchOpts = {
       headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        'User-Agent': getRandomUA(),
         Accept:
           'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
       },
       redirect: 'manual',
       signal: AbortSignal.timeout(15000),
-    });
+    };
+    if (proxy) fetchOpts.dispatcher = proxy.dispatcher;
+
+    const res = await fetch(currentUrl, fetchOpts);
 
     if ([301, 302, 303, 307, 308].includes(res.status)) {
       const location = res.headers.get('location');
@@ -173,7 +228,7 @@ export async function fetchHTML(url) {
 
     if (res.status >= 400) {
       res.body?.cancel?.();
-      throw new Error(`HTTP ${res.status} ${res.statusText || 'Error'}`, { cause: { code: `HTTP_${res.status}` } });
+      return { status: res.status, statusText: res.statusText || 'Error' };
     }
 
     const contentType = (res.headers.get('content-type') || '').toLowerCase();
@@ -255,6 +310,7 @@ async function fetchWithBrowser(browserPool, url) {
   await resolveAndValidate(new URL(url).hostname);
 
   const page = await browserPool.newPage();
+  let success = false;
   try {
     let navigated = false;
     let usedNetworkIdle = false;
@@ -281,12 +337,13 @@ async function fetchWithBrowser(browserPool, url) {
     if (html.length > MAX_RESPONSE_SIZE) {
       throw new Error(`Page too large: ${(html.length / 1024 / 1024).toFixed(1)}MB`);
     }
+    success = true;
     return html;
   } finally {
     const ctx = page.context();
     await page.close();
     await ctx.close();
-    browserPool.release(page);
+    browserPool.release(page, success);
   }
 }
 
