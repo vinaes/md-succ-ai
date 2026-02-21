@@ -536,6 +536,10 @@ export function createApp(deps = {}) {
 
     try { targetUrl = decodeURIComponent(targetUrl); } catch {}
 
+    // Restore protocol double-slash if collapsed by HTTP path normalization
+    // e.g. "https:/example.com" → "https://example.com"
+    targetUrl = targetUrl.replace(/^(https?):\/(?!\/)/, '$1://');
+
     if (!targetUrl) {
       return c.json({
         name: 'md.succ.ai',
