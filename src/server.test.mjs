@@ -153,6 +153,27 @@ describe('GET /<url> — conversion', () => {
     assert.equal(capturedUrl, 'https://example.com');
   });
 
+  it('restores collapsed protocol double-slash (https:/ → https://)', async () => {
+    let capturedUrl;
+    const app = createTestApp({
+      convertFn: async (url) => { capturedUrl = url; return mockConvertResult(); },
+    });
+    // Simulate what happens when HTTP layer collapses // to /
+    const res = await app.request('/https:/example.com');
+    assert.equal(res.status, 200);
+    assert.equal(capturedUrl, 'https://example.com');
+  });
+
+  it('restores collapsed http:/ double-slash', async () => {
+    let capturedUrl;
+    const app = createTestApp({
+      convertFn: async (url) => { capturedUrl = url; return mockConvertResult(); },
+    });
+    const res = await app.request('/http:/example.com');
+    assert.equal(res.status, 200);
+    assert.equal(capturedUrl, 'http://example.com');
+  });
+
   it('returns 404 for upstream HTTP 404', async () => {
     const app = createTestApp({
       convertFn: async () => { throw new Error('Fetch failed: HTTP_404'); },
