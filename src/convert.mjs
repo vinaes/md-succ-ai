@@ -179,14 +179,14 @@ export async function fetchHTML(url) {
       }
     }
     // Both proxied attempts failed — throw so browser tier can take over
-    throw new Error(`HTTP ${result.status} ${result.statusText || 'Error'}`, { cause: { code: `HTTP_${result.status}` } });
+    throw new Error(`HTTP ${result.status} ${result.statusText || 'Error'}`, { cause: { code: `HTTP_${result.status}`, cfBlocked: result.cfBlocked } });
   }
 
   // Non-retryable error (any status >= 400 without proxy, or non-403/503 with proxy)
   if (result.status >= 400) {
     if (proxy) pool.markFailed(proxy.url);
     proxyRequestsTotal.inc({ result: proxy ? 'fail' : 'direct' });
-    throw new Error(`HTTP ${result.status} ${result.statusText || 'Error'}`, { cause: { code: `HTTP_${result.status}` } });
+    throw new Error(`HTTP ${result.status} ${result.statusText || 'Error'}`, { cause: { code: `HTTP_${result.status}`, cfBlocked: result.cfBlocked } });
   }
 
   if (proxy) {
@@ -236,8 +236,12 @@ async function _fetchWithProxy(url, proxy) {
     }
 
     if (res.status >= 400) {
+      const cfBlocked = res.status === 403 && (
+        (res.headers.get('server') || '').toLowerCase().includes('cloudflare') ||
+        !!res.headers.get('cf-ray')
+      );
       res.body?.cancel?.();
-      return { status: res.status, statusText: res.statusText || 'Error' };
+      return { status: res.status, statusText: res.statusText || 'Error', cfBlocked };
     }
 
     const contentType = (res.headers.get('content-type') || '').toLowerCase();
@@ -686,6 +690,7 @@ export async function convert(url, browserPool = null, options = {}) {
   let fetchFailed = options.skipFetch || false;
   let fetchError = options.skipFetch ? 'skipped' : '';
   let httpErrorStatus = 0;
+  let fetchCfBlocked = false;
   let result;
   const escalation = [];
 
@@ -760,7 +765,8 @@ export async function convert(url, browserPool = null, options = {}) {
     fetchError = e.cause?.message || e.cause?.code || e.message;
     const httpMatch = fetchError.match?.(/^HTTP_(\d+)$/);
     if (httpMatch) httpErrorStatus = parseInt(httpMatch[1], 10);
-    getLog().error({ url, err: fetchError }, 'fetch error');
+    fetchCfBlocked = !!e.cause?.cfBlocked;
+    getLog().error({ url, err: fetchError, cfBlocked: fetchCfBlocked || undefined }, 'fetch error');
   }
 
   if (!fetchFailed) {
@@ -776,7 +782,9 @@ export async function convert(url, browserPool = null, options = {}) {
   const challengeTitle = result?.title && ERROR_PATTERNS.some((p) => result.title.toLowerCase().includes(p));
   let cfPoisoned = challengeTitle && !options.skipFetch && !options.forceBrowser;
   const httpClientError = httpErrorStatus >= 400 && httpErrorStatus < 500;
-  const needsBrowser = !cfPoisoned && !httpClientError && (fetchFailed || challengeTitle || options.forceBrowser ||
+  // 403 → always escalate to browser (Camoufox anti-detection bypasses CF and bot gates)
+  const botBlocked = httpErrorStatus === 403;
+  const needsBrowser = (!httpClientError || cfPoisoned || botBlocked) && (fetchFailed || challengeTitle || options.forceBrowser ||
     (!goodExtraction && (result?.quality?.score ?? 0) < 0.6));
   if (browserPool && needsBrowser) {
     if (fetchFailed) escalation.push(`fetch failed (${fetchError})`);
