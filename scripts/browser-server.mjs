@@ -1,14 +1,13 @@
 /**
  * Browser sidecar entry point.
- * Launches Chromium via Patchright launchServer() and exposes CDP WebSocket.
- * Auto-restarts if Chromium crashes. Includes HTTP health endpoint.
+ * Launches Camoufox via launchServer() and exposes Playwright WebSocket.
+ * Auto-restarts if Camoufox crashes. Includes HTTP health endpoint.
  */
-import { chromium } from 'patchright';
+import { launchServer as launchCamoufoxServer } from 'camoufox-js';
 import { createServer } from 'node:http';
 
 const CDP_PORT = parseInt(process.env.CDP_PORT || '9222', 10);
 const HEALTH_PORT = parseInt(process.env.HEALTH_PORT || '9223', 10);
-const HAS_PROXIES = !!(process.env.PROXY_URLS || '').trim() || !!(process.env.PROXY_FILE || '').trim();
 
 let server = null;
 let launching = false;
@@ -17,31 +16,19 @@ async function launchServer() {
   if (launching) return;
   launching = true;
   try {
-    console.log('[browser-server] starting Chromium...');
+    console.log('[browser-server] starting Camoufox...');
     const launchOpts = {
       headless: true,
       port: CDP_PORT,
       host: '0.0.0.0',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--no-first-run',
-        '--no-zygote',
-        '--disable-extensions',
-      ],
+      ws_path: '/camoufox',
     };
-    // Enable per-context proxy when PROXY_URLS is configured
-    if (HAS_PROXIES) {
-      launchOpts.proxy = { server: 'per-context' };
-      console.log('[browser-server] per-context proxy enabled');
-    }
-    server = await chromium.launchServer(launchOpts);
+
+    server = await launchCamoufoxServer(launchOpts);
     console.log(`[browser-server] ready at ${server.wsEndpoint()}`);
 
     server.on('close', () => {
-      console.warn('[browser-server] Chromium closed, restarting in 1s...');
+      console.warn('[browser-server] Camoufox closed, restarting in 1s...');
       server = null;
       setTimeout(launchServer, 1000);
     });
@@ -82,7 +69,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
 
 await launchServer();
 
-// Watchdog: restart if server dies
+// Watchdog: restart if server dies.
 setInterval(() => {
   if (!server && !launching) {
     console.warn('[browser-server] watchdog: browser not running, restarting...');

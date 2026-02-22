@@ -279,7 +279,7 @@ URL ──→ Cache hit? ──→ Return cached result (Redis, dynamic TTL)
          │   └─→ Readability → Defuddle → Article Extractor → CSS selectors
          │       → Schema.org → Open Graph → Text density → Body fallback
          │
-         ├─ Tier 2: Patchright headless browser (SPA/JS-heavy)
+         ├─ Tier 2: Camoufox headless browser (SPA/JS-heavy)
          │   └─→ Same 9-pass pipeline on rendered DOM
          │
          ├─ Tier 2.5: LLM extraction (quality < B)
@@ -323,7 +323,7 @@ Cache keys use SHA-256 hashes to prevent poisoning via long/malicious URLs. Trac
 | [@extractus/article-extractor](https://github.com/nicedoc/extractus) | Alternative extraction heuristics |
 | [Turndown](https://github.com/mixmark-io/turndown) | HTML → Markdown conversion |
 | [linkedom](https://github.com/WebReflection/linkedom) | Lightweight DOM parser |
-| [Patchright](https://github.com/nicedoc/patchright) | Patched Chromium for anti-detection |
+| [Camoufox](https://github.com/daijro/camoufox) | Firefox fork with C++ anti-detection |
 | [Redis](https://redis.io) + [ioredis](https://github.com/redis/ioredis) | Cache, rate limiting, job storage |
 | [prom-client](https://github.com/siimon/prom-client) | Prometheus metrics |
 | [unpdf](https://github.com/unjs/unpdf) | PDF text extraction |
@@ -351,7 +351,7 @@ This starts four containers:
 
 | Container | Purpose | Port |
 |-----------|---------|------|
-| **md-succ-ai** | API server with Patchright browser | 127.0.0.1:3100 |
+| **md-succ-ai** | API server with Camoufox browser fallback | 127.0.0.1:3100 |
 | **md-succ-redis** | Redis 7 (cache, rate limiting, jobs) | internal |
 | **md-succ-prometheus** | Prometheus metrics collector | internal |
 | **md-succ-grafana** | Grafana dashboards | 127.0.0.1:3200 |
@@ -362,7 +362,7 @@ The API is available at `http://localhost:3100`.
 
 ```bash
 npm install
-npx patchright install chromium
+npx camoufox-js fetch
 npm start
 ```
 
@@ -374,7 +374,7 @@ npm start
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `3000` | Server port |
-| `ENABLE_BROWSER` | `true` | Enable Patchright browser fallback |
+| `ENABLE_BROWSER` | `true` | Enable Camoufox browser fallback |
 | `NODE_ENV` | `production` | Node environment |
 | `REDIS_URL` | `redis://redis:6379` | Redis connection URL (with password in Docker) |
 | `REDIS_PASSWORD` | — | Redis authentication password (required in Docker) |
@@ -442,7 +442,7 @@ Plus Node.js default metrics (CPU, memory, event loop, GC) via `prom-client`.
 
 ## Security
 
-- **SSRF protection** — URL validation, DNS resolution checks (IPv4 + IPv6), redirect validation per hop, Patchright route blocking, webhook callback DNS validation
+- **SSRF protection** — URL validation, DNS resolution checks (IPv4 + IPv6), redirect validation per hop, Camoufox route blocking, webhook callback DNS validation
 - **Private IP blocking** — 127/8, 10/8, 172.16/12, 192.168/16, 169.254/16, CGNAT, cloud metadata hostnames, hex/octal IP formats, IPv6 mapped addresses
 - **Input limits** — 5MB response size, 5 max redirects, content-type validation, body size limits per endpoint
 - **Output sanitization** — Error messages stripped of internal paths/stack traces, URLs sanitized in responses
@@ -475,7 +475,7 @@ Plus Node.js default metrics (CPU, memory, event loop, GC) via `prom-client`.
 ┌────────▼─────────┐ ┌──────▼───────┐ ┌─────────▼────────┐
 │  md-succ-ai      │ │  Prometheus  │ │  Grafana         │
 │  (Node 22, Hono) │ │  (scrape     │ │  (dashboards,    │
-│  Patchright      │ │   /metrics)  │ │   alerting)      │
+│  Camoufox       │ │   /metrics)  │ │   alerting)      │
 │  BaaS clients    │ └──────────────┘ └──────────────────┘
 │  Pino logging    │
 └────────┬─────────┘

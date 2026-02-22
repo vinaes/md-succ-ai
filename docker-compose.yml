@@ -33,7 +33,7 @@ services:
     restart: unless-stopped
     networks:
       - internal
-    shm_size: "512mb"
+    shm_size: "1gb"
     environment:
       - PROXY_URLS=${PROXY_URLS:-}
       - PROXY_FILE=${PROXY_FILE:-}

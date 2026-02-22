@@ -81,7 +81,7 @@ export const browserPoolActive = new client.Gauge({
 
 export const browserLaunchesTotal = new client.Counter({
   name: 'browser_launches_total',
-  help: 'Total Chromium browser launches/restarts',
+  help: 'Total Camoufox browser launches/restarts',
   registers: [register],
 });
 

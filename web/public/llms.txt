@@ -136,7 +136,7 @@ curl -H 'If-None-Match: W/"a1b2c3d4..."' https://md.succ.ai/https://example.com
 2. **RSS/Atom detection**: Feed MIME types and XML heuristics - parsed into structured Markdown
 3. **Document detection**: PDF, DOCX, XLSX, CSV detected by Content-Type or extension
 4. **Tier 1 (fast)**: 9-pass extraction pipeline (200-500ms) with quality ratio checks
-5. **Tier 2 (browser)**: Playwright headless Chromium for SPAs and JS-heavy sites (3-15s)
+5. **Tier 2 (browser)**: Camoufox headless Firefox for SPAs and JS-heavy sites (3-15s)
 6. **Tier 2.5 (LLM)**: Llama 3.3 70B via nano-gpt when quality < B
 
 Automatic tier escalation - no configuration needed.
@@ -169,7 +169,7 @@ cd md-succ-ai
 docker compose up -d
 ```
 
-Available at localhost:3100. Docker image includes Chromium.
+Available at localhost:3100. Docker image includes Camoufox.
 
 ## Use Cases
 
@@ -186,7 +186,7 @@ Available at localhost:3100. Docker image includes Chromium.
 - Node.js 22, Hono framework
 - Mozilla Readability + Defuddle (content extraction)
 - Turndown (HTML to Markdown)
-- Playwright (headless Chromium for SPAs)
+- Camoufox + playwright-core (headless Firefox for SPAs)
 - Ajv (JSON Schema validation)
 - gpt-tokenizer (cl100k_base token counting)
 

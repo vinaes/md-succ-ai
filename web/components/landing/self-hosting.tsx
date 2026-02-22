@@ -49,7 +49,7 @@ export function SelfHosting() {
             Run your own instance
           </h2>
           <p className="text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-            Docker image with Chromium included. One command to deploy.
+            Docker image with Camoufox included. One command to deploy.
             No external dependencies, no API keys, no accounts.
           </p>
         </div>
@@ -62,7 +62,7 @@ export function SelfHosting() {
             </div>
             <h3 className="text-xl font-semibold mb-3 text-foreground">Docker (recommended)</h3>
             <p className="text-muted-foreground leading-relaxed mb-6">
-              Clone the repo and start the container. Chromium is bundled in the image.
+              Clone the repo and start the container. Camoufox is bundled in the image.
               Available at localhost:3100.
             </p>
             <CopyBlock
@@ -81,12 +81,12 @@ docker compose up -d`}
             <h3 className="text-xl font-semibold mb-3 text-foreground">Local (no Docker)</h3>
             <p className="text-muted-foreground leading-relaxed mb-6">
               Install dependencies and start the server.
-              Requires Node.js 20+ and Chromium for Playwright.
+              Requires Node.js 20+ and Camoufox binaries.
             </p>
             <CopyBlock
               title="terminal"
               code={`npm install
-npx playwright install chromium
+npx camoufox-js fetch
 npm start`}
             />
           </div>
@@ -102,7 +102,7 @@ npm start`}
             <div className="h-px bg-border" />
             <div className="flex flex-col sm:flex-row sm:justify-between gap-1">
               <span className="text-foreground">ENABLE_BROWSER</span>
-              <span className="text-muted-foreground">Playwright fallback (default: true)</span>
+              <span className="text-muted-foreground">Camoufox browser fallback (default: true)</span>
             </div>
             <div className="h-px bg-border" />
             <div className="flex flex-col sm:flex-row sm:justify-between gap-1">

@@ -1,4 +1,5 @@
-import { chromium } from 'patchright';
+import { firefox } from 'playwright-core';
+import { launchOptions } from 'camoufox-js';
 import { getLog } from './logger.mjs';
 import {
   browserLaunchesTotal,
@@ -6,20 +7,9 @@ import {
   browserPoolExhaustedTotal,
   proxyRequestsTotal,
 } from './metrics.mjs';
-import { getRandomUA } from './ua-pool.mjs';
 import { ProxyPool } from './proxy-pool.mjs';
 
 const MAX_CONCURRENT = 3;
-
-const CHROMIUM_ARGS = [
-  '--no-sandbox',
-  '--disable-setuid-sandbox',
-  '--disable-dev-shm-usage',
-  '--disable-gpu',
-  '--no-first-run',
-  '--no-zygote',
-  '--disable-extensions',
-];
 
 /**
  * Parse ENABLE_BROWSER env var into a mode string.
@@ -63,7 +53,7 @@ function isPrivateHost(hostname) {
 }
 
 /**
- * Browser pool — supports local (in-process Chromium) and remote (CDP sidecar) modes.
+ * Browser pool — supports local (in-process Camoufox) and remote (WS sidecar) modes.
  * Launches/connects once, reuses for all requests. Reconnects on crash.
  * Limits concurrent contexts to MAX_CONCURRENT.
  * Supports per-context proxy rotation and UA randomization.
@@ -103,16 +93,14 @@ export class BrowserPool {
       this.launching = null;
     }
 
-    getLog().info({ mode: this.mode }, 'chromium ready');
+    getLog().info({ mode: this.mode }, 'camoufox ready');
   }
 
   async _launchLocal() {
-    const launchOpts = { headless: true, args: CHROMIUM_ARGS };
-    // Enable per-context proxy when proxies are configured
-    if (this.proxyPool?.size) {
-      launchOpts.proxy = { server: 'per-context' };
-    }
-    return chromium.launch(launchOpts);
+    const opts = await launchOptions({ headless: true });
+    // Remove browser-level proxy from Camoufox defaults — we rotate per-context
+    delete opts.proxy;
+    return firefox.launch(opts);
   }
 
   async _connectRemote() {
@@ -128,17 +116,18 @@ export class BrowserPool {
     // Replace 0.0.0.0 with the actual sidecar hostname
     const host = new URL(this.wsEndpoint.replace('ws://', 'http://')).hostname;
     const actualWs = wsEndpoint.replace('0.0.0.0', host);
-    return chromium.connect(actualWs);
+    return firefox.connect(actualWs);
   }
 
   /**
-   * Build context options with rotated UA and optional proxy.
+   * Build context options with optional proxy rotation.
+   * Playwright Firefox supports per-context proxy natively (no special launch flags needed).
    * @returns {{ contextOpts: object, proxyUrl: string|null }}
    */
   _getContextOptions() {
+    // Camoufox generates realistic fingerprints (UA, viewport, screen geometry)
+    // at the C++ level — do NOT override userAgent or viewport here.
     const contextOpts = {
-      userAgent: getRandomUA(),
-      viewport: { width: 1280, height: 720 },
       locale: 'en-US',
     };
 
@@ -234,7 +223,7 @@ export class BrowserPool {
       this.active = 0;
       this._pageTimers = new WeakMap();
       this._pageProxies = new WeakMap();
-      getLog().info('chromium closed');
+      getLog().info('camoufox closed');
     }
   }
 }

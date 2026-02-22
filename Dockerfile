@@ -16,7 +16,7 @@ RUN find /app/node_modules -type f \( \
       -name '__tests__' -o -name 'test' -o -name 'tests' -o -name '.github' \
     \) -exec rm -rf {} + 2>/dev/null; true
 
-# == Stage 2: Runtime (API-only, NO Chromium) ==
+# == Stage 2: Runtime (API-only, NO browser) ==
 FROM node:22-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \

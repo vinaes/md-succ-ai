@@ -5,10 +5,10 @@ HTML to clean Markdown API. Part of the [succ](https://succ.ai) ecosystem.
 ## Architecture
 
 - **src/server.mjs** — Hono HTTP server, routing, content negotiation
-- **src/convert.mjs** — Two-tier conversion pipeline (fetch → Patchright browser fallback)
-- **src/browser-pool.mjs** — Singleton Chromium browser pool with auto-restart
-- **Dockerfile** — node:22-slim + Patchright Chromium + system deps
-- **docker-compose.yml** — Production config (port 3100, 2G RAM, 512mb shm)
+- **src/convert.mjs** — Two-tier conversion pipeline (fetch → Camoufox browser fallback)
+- **src/browser-pool.mjs** — Singleton Camoufox (Firefox) browser pool with auto-restart
+- **Dockerfile.browser** — Camoufox Firefox sidecar image + system deps
+- **docker-compose.yml** — Production config (port 3100, 1G RAM browser sidecar, 1gb shm)
 - **nginx/** — Reverse proxy config with rate limiting
 
 ## Stack
@@ -18,7 +18,7 @@ HTML to clean Markdown API. Part of the [succ](https://succ.ai) ecosystem.
 - Mozilla Readability (content extraction)
 - Turndown (HTML → Markdown)
 - linkedom (DOM parsing)
-- Patchright (undetected Playwright fork for headless Chromium)
+- Camoufox (Firefox fork with C++ anti-detection)
 - gpt-tokenizer (cl100k_base token counting)
 
 ## Deployment

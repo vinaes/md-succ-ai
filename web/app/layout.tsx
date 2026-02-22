@@ -87,7 +87,7 @@ const jsonLdString = JSON.stringify({
       },
       featureList: [
         '9-pass content extraction (Readability, Defuddle, article-extractor)',
-        'Playwright headless Chromium for SPAs',
+        'Camoufox headless Firefox for SPAs',
         'YouTube transcript extraction',
         'Citation-style link conversion',
         'fit_markdown mode for LLM context optimization',
@@ -117,7 +117,7 @@ const jsonLdString = JSON.stringify({
           name: 'Does md.succ.ai work with single-page applications (SPAs)?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'Yes. md.succ.ai uses a multi-tier pipeline: fast HTTP fetch with 9-pass extraction for static pages (200-500ms), with automatic Playwright headless Chromium fallback for JavaScript-heavy and SPA sites (3-15s), and LLM extraction as a last resort.',
+            text: 'Yes. md.succ.ai uses a multi-tier pipeline: fast HTTP fetch with 9-pass extraction for static pages (200-500ms), with automatic Camoufox headless Firefox fallback for JavaScript-heavy and SPA sites (3-15s), and LLM extraction as a last resort.',
           },
         },
         {
@@ -133,7 +133,7 @@ const jsonLdString = JSON.stringify({
           name: 'Can I self-host md.succ.ai?',
           acceptedAnswer: {
             '@type': 'Answer',
-            text: 'Yes. Clone the GitHub repo and run docker compose up -d. The Docker image includes Chromium. No external dependencies, no API keys, no accounts needed.',
+            text: 'Yes. Clone the GitHub repo and run docker compose up -d. The Docker image includes Camoufox. No external dependencies, no API keys, no accounts needed.',
           },
         },
         {

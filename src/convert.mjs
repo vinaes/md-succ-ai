@@ -312,7 +312,7 @@ async function _fetchWithProxy(url, proxy) {
 }
 
 /**
- * Fetch HTML via Patchright headless browser
+ * Fetch HTML via Camoufox headless browser
  */
 async function fetchWithBrowser(browserPool, url) {
   if (isBlockedUrl(url)) throw new Error('Blocked URL: private or internal address');
@@ -652,7 +652,7 @@ export async function extractSchema(markdown, url, schema) {
 
 /**
  * Full conversion pipeline: fetch → multi-pass extraction → turndown → tokens → quality
- * With Patchright browser fallback for SPA sites
+ * With Camoufox browser fallback for SPA sites
  */
 export async function convert(url, browserPool = null, options = {}) {
   const t0 = performance.now();
@@ -771,7 +771,7 @@ export async function convert(url, browserPool = null, options = {}) {
     }
   }
 
-  // Tier 2: Patchright browser fallback if fetch failed or extraction quality is low
+  // Tier 2: Camoufox browser fallback if fetch failed or extraction quality is low
   const goodExtraction = result?.readability || ['readability-cleaned', 'article-extractor', 'defuddle'].includes(result?.method);
   const challengeTitle = result?.title && ERROR_PATTERNS.some((p) => result.title.toLowerCase().includes(p));
   let cfPoisoned = challengeTitle && !options.skipFetch && !options.forceBrowser;
