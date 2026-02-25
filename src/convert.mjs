@@ -21,9 +21,13 @@ import { DOCUMENT_FORMATS, detectFormatByExtension, convertDocument } from './do
 import { tryYouTube } from './youtube.mjs';
 import { getLog } from './logger.mjs';
 import { isFeedContentType, maybeFeedContentType, looksLikeFeed, parseFeed } from './feed.mjs';
+import { Agent } from 'undici';
 import { getProxyPool } from './proxy-pool.mjs';
-import { getRandomUA } from './ua-pool.mjs';
+import { getRandomProfile, CHROME_CIPHERS } from './ua-pool.mjs';
 import { proxyRequestsTotal, proxyPoolHealthy } from './metrics.mjs';
+
+// Module-level agent with Chrome-like TLS cipher ordering for direct (non-proxied) fetches.
+const directAgent = new Agent({ connect: { ciphers: CHROME_CIPHERS } });
 
 // ─── Security ─────────────────────────────────────────────────────────
 
@@ -207,17 +211,13 @@ async function _fetchWithProxy(url, proxy) {
   let currentUrl = url;
 
   for (let i = 0; i <= MAX_REDIRECTS; i++) {
+    const profile = getRandomProfile();
     const fetchOpts = {
-      headers: {
-        'User-Agent': getRandomUA(),
-        Accept:
-          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-      },
+      headers: { ...profile.headers },
       redirect: 'manual',
       signal: AbortSignal.timeout(15000),
     };
-    if (proxy) fetchOpts.dispatcher = proxy.dispatcher;
+    fetchOpts.dispatcher = proxy ? proxy.dispatcher : directAgent;
 
     const res = await fetch(currentUrl, fetchOpts);
 

@@ -15,6 +15,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { ProxyAgent } from 'undici';
+import { CHROME_CIPHERS } from './ua-pool.mjs';
 
 const DEFAULT_COOLDOWN = 60_000;   // 60s initial cooldown
 const MAX_COOLDOWN = 300_000;      // 5min max cooldown
@@ -22,15 +23,19 @@ const MAX_COOLDOWN = 300_000;      // 5min max cooldown
 export class ProxyPool {
   /**
    * @param {string[]} proxyUrls
+   * @param {{ connectOptions?: object }} [options]
    */
-  constructor(proxyUrls = []) {
+  constructor(proxyUrls = [], options = {}) {
     this._index = 0;
+    const connectOpts = options.connectOptions || undefined;
     this._proxies = proxyUrls
       .map((raw) => raw.trim())
       .filter(Boolean)
       .map((url) => ({
         url,
-        dispatcher: new ProxyAgent(url),
+        dispatcher: connectOpts
+          ? new ProxyAgent({ uri: url, connect: connectOpts })
+          : new ProxyAgent(url),
         failures: 0,
         cooldownUntil: 0,
       }));
@@ -157,7 +162,9 @@ export function getProxyPool() {
         .map((s) => s.trim())
         .filter(Boolean);
     }
-    _instance = new ProxyPool(urls);
+    _instance = new ProxyPool(urls, {
+      connectOptions: { ciphers: CHROME_CIPHERS },
+    });
   }
   return _instance;
 }

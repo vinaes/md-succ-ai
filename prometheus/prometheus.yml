@@ -8,3 +8,9 @@ scrape_configs:
       - targets: ['md-api:3000']
     metrics_path: /metrics
     scrape_interval: 10s
+
+  - job_name: md-succ-mcp
+    static_configs:
+      - targets: ['md-mcp:3000']
+    metrics_path: /metrics
+    scrape_interval: 10s

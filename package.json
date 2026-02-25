@@ -20,7 +20,9 @@
   },
   "dependencies": {
     "@extractus/article-extractor": "^8.0.20",
+    "@hono/mcp": "^0.2.3",
     "@hono/node-server": "^1.13.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "@mozilla/readability": "^0.6.0",
     "ajv": "^8.18.0",
     "camoufox-js": "^0.9.1",
@@ -38,7 +40,8 @@
     "turndown": "^7.2.0",
     "undici": "^7.22.0",
     "unpdf": "^1.4.0",
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "zod": "^3.25.76"
   },
   "engines": {
     "node": ">=20"

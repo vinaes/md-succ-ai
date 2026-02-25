@@ -52,6 +52,89 @@ function isPrivateHost(hostname) {
   return false;
 }
 
+// ─── Resource blocking ──────────────────────────────────────────────
+
+const BROWSER_BLOCK_ENABLED = process.env.BROWSER_BLOCK_RESOURCES !== 'false';
+
+/**
+ * Resource types to block in browser contexts.
+ * Images are stripped by markdown.mjs anyway; fonts/media/websockets waste bandwidth.
+ */
+export const BLOCKED_RESOURCE_TYPES = new Set([
+  'image', 'media', 'font', 'websocket', 'manifest',
+  'eventsource', 'texttrack',
+]);
+
+/**
+ * Ad/tracker domain suffixes to block.
+ * Matched via endsWith — catches subdomains automatically.
+ */
+export const BLOCKED_DOMAINS = [
+  // Google ads/analytics
+  'doubleclick.net',
+  'googlesyndication.com',
+  'googleadservices.com',
+  'google-analytics.com',
+  'googletagmanager.com',
+  'googletagservices.com',
+  'adservice.google.com',
+  // Facebook
+  'facebook.net',
+  'fbcdn.net',
+  // Twitter/X
+  'platform.twitter.com',
+  'ads-twitter.com',
+  // Amazon ads
+  'amazon-adsystem.com',
+  // Microsoft/Bing
+  'bat.bing.com',
+  'clarity.ms',
+  // Analytics
+  'hotjar.com',
+  'segment.io',
+  'segment.com',
+  'mixpanel.com',
+  'amplitude.com',
+  'heap.io',
+  'fullstory.com',
+  'mouseflow.com',
+  // Ad networks
+  'outbrain.com',
+  'taboola.com',
+  'criteo.com',
+  'criteo.net',
+  'rubiconproject.com',
+  'pubmatic.com',
+  'openx.net',
+  'adnxs.com',
+  'moatads.com',
+  'quantserve.com',
+  'scorecardresearch.com',
+  'chartbeat.com',
+  'optimizely.com',
+  // Consent/cookie banners
+  'cookielaw.org',
+  'onetrust.com',
+  'trustarc.com',
+];
+
+/**
+ * Check if a browser sub-request should be blocked.
+ * @param {string} resourceType - Playwright resource type
+ * @param {string} url - Request URL
+ * @returns {boolean}
+ */
+export function shouldBlockRequest(resourceType, url) {
+  if (!BROWSER_BLOCK_ENABLED) return false;
+  if (BLOCKED_RESOURCE_TYPES.has(resourceType)) return true;
+  try {
+    const hostname = new URL(url).hostname;
+    return BLOCKED_DOMAINS.some((d) => hostname === d || hostname.endsWith('.' + d));
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Browser pool — supports local (in-process Camoufox) and remote (WS sidecar) modes.
  * Launches/connects once, reuses for all requests. Reconnects on crash.
@@ -162,11 +245,18 @@ export class BrowserPool {
       const { contextOpts, proxyUrl } = this._getContextOptions();
       const context = await this.browser.newContext(contextOpts);
 
-      // Block sub-requests to private/internal addresses (SSRF protection)
+      // Block SSRF + ads/trackers/heavy resources
       await context.route('**/*', (route) => {
         try {
-          const u = new URL(route.request().url());
+          const reqUrl = route.request().url();
+          const u = new URL(reqUrl);
+          // SSRF protection
           if (isPrivateHost(u.hostname)) {
+            route.abort('blockedbyclient');
+            return;
+          }
+          // Resource/domain blocking (bandwidth + speed optimization)
+          if (shouldBlockRequest(route.request().resourceType(), reqUrl)) {
             route.abort('blockedbyclient');
             return;
           }
