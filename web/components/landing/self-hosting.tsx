@@ -63,7 +63,7 @@ export function SelfHosting() {
             <h3 className="text-xl font-semibold mb-3 text-foreground">Docker (recommended)</h3>
             <p className="text-muted-foreground leading-relaxed mb-6">
               Clone the repo and start the container. Camoufox is bundled in the image.
-              Available at localhost:3100.
+              API at localhost:3100, MCP at localhost:3300.
             </p>
             <CopyBlock
               title="terminal"
@@ -123,6 +123,16 @@ npm start`}
             <div className="flex flex-col sm:flex-row sm:justify-between gap-1">
               <span className="text-foreground">REDIS_PASSWORD</span>
               <span className="text-muted-foreground">Redis auth (required for caching + async)</span>
+            </div>
+            <div className="h-px bg-border" />
+            <div className="flex flex-col sm:flex-row sm:justify-between gap-1">
+              <span className="text-foreground">BROWSER_BLOCK_RESOURCES</span>
+              <span className="text-muted-foreground">Ad/tracker blocking (default: true)</span>
+            </div>
+            <div className="h-px bg-border" />
+            <div className="flex flex-col sm:flex-row sm:justify-between gap-1">
+              <span className="text-foreground">PROXY_URLS</span>
+              <span className="text-muted-foreground">Proxy rotation URLs (optional, comma-separated)</span>
             </div>
           </div>
         </div>

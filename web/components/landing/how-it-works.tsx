@@ -112,6 +112,31 @@ curl -X POST https://md.succ.ai/async \\
   }'`,
     codeTitle: "terminal",
   },
+  {
+    number: "05",
+    title: "Connect via MCP",
+    description: "AI agents connect directly via Model Context Protocol. Streamable HTTP transport at /mcp. Works with Claude Desktop, Claude Code, and any MCP-compatible client.",
+    code: `# Claude Code (.mcp.json)
+{
+  "mcpServers": {
+    "md-succ-ai": {
+      "type": "url",
+      "url": "https://md.succ.ai/mcp"
+    }
+  }
+}
+
+# Claude Desktop (claude_desktop_config.json)
+{
+  "mcpServers": {
+    "md-succ-ai": {
+      "command": "npx",
+      "args": ["mcp-remote@latest", "https://md.succ.ai/mcp"]
+    }
+  }
+}`,
+    codeTitle: "mcp config",
+  },
 ]
 
 export function HowItWorks() {

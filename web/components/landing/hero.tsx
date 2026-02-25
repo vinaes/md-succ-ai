@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { Button } from "@/components/ui/button"
-import { Github, ArrowRight, Zap, Shield, FileText } from "lucide-react"
+import { Github, ArrowRight, Zap, Shield, FileText, Bot } from "lucide-react"
 import Link from "next/link"
 
 export function Hero() {
@@ -35,8 +35,8 @@ export function Hero() {
 
       <p className="text-sm sm:text-base text-muted-foreground/80 mb-12 max-w-lg text-balance leading-relaxed px-2">
         Convert any webpage or document to clean Markdown.
-        HTML, PDF, DOCX, XLSX, CSV, YouTube transcripts. Citation links, fit mode, schema extraction.
-        Built for AI agents and RAG pipelines.
+        HTML, PDF, DOCX, XLSX, CSV, YouTube transcripts. MCP server for AI agents.
+        TLS fingerprint impersonation. Built for RAG pipelines.
       </p>
 
       {/* Try it */}
@@ -72,17 +72,22 @@ export function Hero() {
       {/* Stats */}
       <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 mt-10 text-xs sm:text-sm text-muted-foreground">
         <div className="flex items-center gap-1.5">
-          <Zap className="w-4 h-4 text-green" />
+          <Bot className="w-4 h-4 text-green" />
+          <span className="font-mono">MCP Server</span>
+        </div>
+        <span className="text-border hidden sm:inline">|</span>
+        <div className="flex items-center gap-1.5">
+          <Zap className="w-4 h-4 text-blue" />
           <span className="font-mono">200-500ms</span>
         </div>
         <span className="text-border hidden sm:inline">|</span>
         <div className="flex items-center gap-1.5">
-          <Shield className="w-4 h-4 text-blue" />
+          <Shield className="w-4 h-4 text-green" />
           <span className="font-mono">9-pass extraction</span>
         </div>
         <span className="text-border hidden sm:inline">|</span>
         <div className="flex items-center gap-1.5">
-          <FileText className="w-4 h-4 text-green" />
+          <FileText className="w-4 h-4 text-blue" />
           <span className="font-mono">PDF / DOCX / YouTube</span>
         </div>
       </div>

@@ -3,7 +3,7 @@
   "info": {
     "title": "md.succ.ai",
     "version": "1.0.0",
-    "description": "URL to Markdown API — with fit mode, citations, YouTube transcripts, RSS/Atom feeds, batch conversion, async+webhooks, and LLM extraction.",
+    "description": "URL to Markdown API — with fit mode, citations, YouTube transcripts, RSS/Atom feeds, batch conversion, async+webhooks, LLM extraction, and MCP server for AI agents.",
     "contact": {
       "url": "https://github.com/vinaes/md-succ-ai"
     }
@@ -332,6 +332,39 @@
             }
           },
           "404": { "description": "Job not found or expired" }
+        }
+      }
+    },
+    "/mcp": {
+      "post": {
+        "operationId": "mcpEndpoint",
+        "summary": "MCP Server (Model Context Protocol)",
+        "description": "Streamable HTTP transport endpoint for AI agents. Supports JSON-RPC over POST (tool calls, initialize), GET (SSE stream), and DELETE (session termination). Tools: convert_url, extract_data, batch_convert. MCP spec 2025-03-26.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "JSON-RPC 2.0 request (initialize, tools/list, tools/call)"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "JSON-RPC response or SSE stream",
+            "content": {
+              "text/event-stream": {
+                "schema": { "type": "string", "description": "SSE stream with JSON-RPC responses" }
+              },
+              "application/json": {
+                "schema": { "type": "object", "description": "JSON-RPC 2.0 response" }
+              }
+            }
+          },
+          "202": { "description": "Notification accepted (no response body)" },
+          "400": { "description": "Invalid JSON-RPC request" }
         }
       }
     },

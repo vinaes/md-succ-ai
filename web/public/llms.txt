@@ -6,6 +6,42 @@
 
 md.succ.ai converts any URL to clean Markdown using a 9-pass extraction pipeline (Readability, Defuddle, article-extractor, CSS selectors, Schema.org, Open Graph, text density, and more). It strips navigation, sidebars, footers, and ads - returning only the article content. YouTube URLs return transcripts with timestamps.
 
+## MCP Server (Model Context Protocol)
+
+AI agents can connect directly via MCP at `https://md.succ.ai/mcp` (Streamable HTTP transport, MCP spec 2025-03-26).
+
+### MCP Tools
+
+- `convert_url` — Convert a URL to clean Markdown (supports mode, links, max_tokens params)
+- `extract_data` — Extract structured data from a page using a JSON schema
+- `batch_convert` — Batch convert up to 20 URLs in parallel
+
+### Claude Desktop Configuration
+
+```json
+{
+  "mcpServers": {
+    "md-succ-ai": {
+      "command": "npx",
+      "args": ["mcp-remote@latest", "https://md.succ.ai/mcp"]
+    }
+  }
+}
+```
+
+### Claude Code Configuration (.mcp.json)
+
+```json
+{
+  "mcpServers": {
+    "md-succ-ai": {
+      "type": "url",
+      "url": "https://md.succ.ai/mcp"
+    }
+  }
+}
+```
+
 ## API Usage
 
 No API key required. No authentication. Rate limits: 60 req/min (convert), 10 req/min (extract/async), 5 req/min (batch).
@@ -18,6 +54,7 @@ No API key required. No authentication. Rate limits: 60 req/min (convert), 10 re
 - POST https://md.succ.ai/extract - structured data extraction (JSON schema)
 - POST https://md.succ.ai/async - async conversion with optional webhook
 - GET https://md.succ.ai/job/{id} - poll async job status
+- POST https://md.succ.ai/mcp - MCP server (Streamable HTTP transport)
 - GET https://md.succ.ai/health - health check
 - GET https://md.succ.ai/openapi.json - OpenAPI 3.1 spec
 - GET https://md.succ.ai/docs - interactive API docs (Scalar UI)
@@ -135,11 +172,19 @@ curl -H 'If-None-Match: W/"a1b2c3d4..."' https://md.succ.ai/https://example.com
 1. **YouTube detection**: YouTube URLs bypass HTML pipeline - transcript extracted via innertube API
 2. **RSS/Atom detection**: Feed MIME types and XML heuristics - parsed into structured Markdown
 3. **Document detection**: PDF, DOCX, XLSX, CSV detected by Content-Type or extension
-4. **Tier 1 (fast)**: 9-pass extraction pipeline (200-500ms) with quality ratio checks
-5. **Tier 2 (browser)**: Camoufox headless Firefox for SPAs and JS-heavy sites (3-15s)
+4. **Tier 1 (fast)**: 9-pass extraction pipeline (200-500ms) with quality ratio checks, TLS fingerprint impersonation (Chrome cipher ordering), full browser header profiles
+5. **Tier 2 (browser)**: Camoufox headless Firefox for SPAs and JS-heavy sites (3-15s), with ad/tracker blocking (~35 domains, 7 resource types)
 6. **Tier 2.5 (LLM)**: Llama 3.3 70B via nano-gpt when quality < B
 
-Automatic tier escalation - no configuration needed.
+Automatic tier escalation - no configuration needed. 403 responses auto-escalate to browser tier.
+
+## Anti-Detection
+
+- TLS JA3 fingerprint impersonation via Chrome cipher suite ordering
+- Full browser header profiles (Sec-Ch-Ua, Sec-Fetch-*, Accept-Encoding with zstd)
+- 10 rotating profiles: Chrome 131-135, Firefox 133-134, Edge 131, Safari 18
+- Camoufox (Firefox fork) with C++ anti-fingerprinting patches
+- Resource blocking: ads, trackers, fonts, media (~35 blocked domains)
 
 ## Caching
 
@@ -169,7 +214,7 @@ cd md-succ-ai
 docker compose up -d
 ```
 
-Available at localhost:3100. Docker image includes Camoufox.
+Available at localhost:3100 (API) and localhost:3300 (MCP). Docker image includes Camoufox.
 
 ## Use Cases
 
@@ -186,13 +231,17 @@ Available at localhost:3100. Docker image includes Camoufox.
 - Node.js 22, Hono framework
 - Mozilla Readability + Defuddle (content extraction)
 - Turndown (HTML to Markdown)
-- Camoufox + playwright-core (headless Firefox for SPAs)
+- Camoufox (headless Firefox with anti-detection)
+- @modelcontextprotocol/sdk + @hono/mcp (MCP Streamable HTTP)
+- undici (HTTP client with TLS cipher control)
 - Ajv (JSON Schema validation)
 - gpt-tokenizer (cl100k_base token counting)
 
 ## Links
 
 - Website: https://md.succ.ai
+- MCP Server: https://md.succ.ai/mcp
+- API Docs: https://md.succ.ai/docs
 - GitHub: https://github.com/vinaes/md-succ-ai
 - Part of the succ ecosystem: https://succ.ai
 - License: FSL-1.1-Apache-2.0

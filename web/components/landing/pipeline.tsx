@@ -25,6 +25,8 @@ export function Pipeline() {
  ├─ Document? (PDF, DOCX, XLSX, CSV)
  │  └─ `}<span className="text-green">Document converter → Markdown</span>{`
  │
+ ├─ TLS fingerprint impersonation (Chrome ciphers)
+ │
  ├─ Tier 1: 9-pass extraction (200-500ms)
  │  1. Readability (standard)
  │  2. Defuddle (Obsidian team)
@@ -39,7 +41,8 @@ export function Pipeline() {
  │
  │  Quality ≥ B? `}<span className="text-green">→ return Markdown</span>{`
  │
- ├─ Tier 2: Playwright browser (3-15s)
+ ├─ Tier 2: Camoufox browser (3-15s)
+ │  ├─ Ad/tracker blocking (~35 domains)
  │  └─ Same 9-pass on rendered DOM
  │
  └─ Tier 2.5: LLM extraction
@@ -130,6 +133,11 @@ Post-processing:
               <div className="flex justify-between">
                 <span className="text-blue">GET</span>
                 <span className="text-muted-foreground">/openapi.json</span>
+              </div>
+              <div className="h-px bg-border" />
+              <div className="flex justify-between">
+                <span className="text-green">POST</span>
+                <span className="text-muted-foreground">/mcp</span>
               </div>
               <div className="h-px bg-border" />
               <div className="flex justify-between">

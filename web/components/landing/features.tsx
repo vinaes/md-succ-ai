@@ -1,11 +1,23 @@
-import { Scissors, Youtube, LinkIcon, Minimize2, Database, Shield, Layers, Webhook, Rss } from "lucide-react"
+import { Scissors, Youtube, LinkIcon, Minimize2, Database, Shield, Layers, Webhook, Rss, Bot, Fingerprint, ShieldBan } from "lucide-react"
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 
 const features = [
   {
+    icon: Bot,
+    title: "MCP Server",
+    description: "Native Model Context Protocol support. AI agents connect directly via Streamable HTTP at /mcp. Works with Claude Desktop, Claude Code, and any MCP client.",
+    color: "text-green",
+  },
+  {
     icon: Scissors,
     title: "9-Pass Extraction",
     description: "Readability, Defuddle, article-extractor, CSS selectors, Schema.org, Open Graph, text density — 9 extraction passes with quality ratio checks.",
+    color: "text-blue",
+  },
+  {
+    icon: Fingerprint,
+    title: "TLS Fingerprint Impersonation",
+    description: "Chrome TLS cipher ordering, full browser header profiles (Sec-Ch-Ua, Sec-Fetch-*). 10 rotating profiles across Chrome, Firefox, Edge, Safari.",
     color: "text-green",
   },
   {
@@ -15,46 +27,52 @@ const features = [
     color: "text-blue",
   },
   {
+    icon: ShieldBan,
+    title: "Ad & Tracker Blocking",
+    description: "Browser tier blocks ~35 ad/tracker domains and 7 resource types (images, fonts, media). Faster page loads, cleaner content extraction.",
+    color: "text-green",
+  },
+  {
     icon: LinkIcon,
     title: "Citation Links",
     description: "?links=citations converts inline links to numbered references with a footer. Saves tokens on repeated URLs. Academic-style output for LLMs.",
-    color: "text-green",
+    color: "text-blue",
   },
   {
     icon: Minimize2,
     title: "fit_markdown Mode",
     description: "?mode=fit prunes boilerplate sections — navigation, footers, low-value content. Smaller context for LLMs without losing signal.",
-    color: "text-blue",
+    color: "text-green",
   },
   {
     icon: Database,
     title: "Schema Extraction",
     description: "POST /extract with a JSON schema. Returns structured data extracted by LLM. Any page, any schema — validated with Ajv.",
-    color: "text-green",
+    color: "text-blue",
   },
   {
     icon: Shield,
     title: "Security Hardened",
     description: "SSRF protection with DNS validation, private IP blocking, redirect validation. Prompt injection hardening. Schema field whitelist.",
-    color: "text-blue",
+    color: "text-green",
   },
   {
     icon: Layers,
     title: "Batch Conversion",
     description: "POST /batch with up to 50 URLs. Parallel processing with 10-worker concurrency. Per-URL errors and timeout protection.",
-    color: "text-green",
+    color: "text-blue",
   },
   {
     icon: Webhook,
     title: "Async + Webhooks",
     description: "POST /async for background jobs. Poll /job/:id or receive results via HTTPS webhook callback. SSRF-protected callbacks.",
-    color: "text-blue",
+    color: "text-green",
   },
   {
     icon: Rss,
     title: "RSS/Atom Feeds",
     description: "Feed URLs auto-detected by content-type. Parsed into structured JSON with titles, links, dates, and descriptions.",
-    color: "text-green",
+    color: "text-blue",
   },
 ]
 
@@ -68,8 +86,8 @@ export function Features() {
             Clean content, not page cruft
           </h2>
           <p className="text-sm sm:text-base text-muted-foreground max-w-2xl mx-auto leading-relaxed px-2">
-            9 extraction passes to find content. 3 conversion tiers for reliability.
-            YouTube transcripts, citation links, LLM-optimized output, and structured extraction.
+            MCP server for AI agents. 9 extraction passes. TLS fingerprint impersonation.
+            Ad blocking. YouTube transcripts. Citation links. Structured extraction.
           </p>
         </div>
 
